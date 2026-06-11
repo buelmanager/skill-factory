@@ -17,6 +17,10 @@ if [ -f "$SETTINGS" ]; then
       | if .hooks.SessionEnd then
         .hooks.SessionEnd = [.hooks.SessionEnd[] | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")) | not)]
         | if (.hooks.SessionEnd | length) == 0 then del(.hooks.SessionEnd) else . end
+      else . end
+      | if .hooks.SessionStart then
+        .hooks.SessionStart = [.hooks.SessionStart[] | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")) | not)]
+        | if (.hooks.SessionStart | length) == 0 then del(.hooks.SessionStart) else . end
       else . end' "$SETTINGS" > "$TMP"
   jq -e . "$TMP" >/dev/null
   mv "$TMP" "$SETTINGS"
@@ -24,6 +28,8 @@ fi
 
 rm -f "$CLAUDE_DIR/hooks/skill-telemetry.sh"
 rm -f "$CLAUDE_DIR/hooks/session-end-queue.sh"
+rm -f "$CLAUDE_DIR/hooks/session-start-curator.sh"
+rm -rf "$CLAUDE_DIR/skills/curator"
 rm -rf "$CLAUDE_DIR/growing-skills"
 
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"

@@ -77,4 +77,29 @@ assert_eq "T6 package removed" "no" "$([ -d "$SANDBOX/.claude/growing-skills" ] 
 assert_eq "T6 queue preserved" "1" "$(ls "$SANDBOX/.claude/skills/.review-queue"/*.md | wc -l | tr -d ' ')"
 teardown
 
+# T7: Phase 3 설치 — SessionStart 머지(기존 항목 보존) + /curator 스킬 + curator 스크립트
+setup
+# 기존 SessionStart 훅이 있는 환경 시뮬레이션
+jq '.hooks.SessionStart = [{"hooks":[{"type":"command","command":"~/.claude/hooks/existing-start.sh","timeout":5}]}]' \
+  "$SANDBOX/.claude/settings.json" > "$SANDBOX/tmp.json" && mv "$SANDBOX/tmp.json" "$SANDBOX/.claude/settings.json"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/install.sh" >/dev/null
+assert_eq "T7 curator hook entry" "1" "$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+assert_eq "T7 existing start preserved" "1" "$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("existing-start.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+assert_eq "T7 curator skill installed" "yes" "$([ -f "$SANDBOX/.claude/skills/curator/SKILL.md" ] && echo yes || echo no)"
+assert_eq "T7 ctl deployed" "yes" "$([ -x "$SANDBOX/.claude/growing-skills/bin/curator-ctl.sh" ] && echo yes || echo no)"
+assert_eq "T7 pass deployed" "yes" "$([ -x "$SANDBOX/.claude/growing-skills/bin/curator-pass.sh" ] && echo yes || echo no)"
+assert_eq "T7 curator prompt" "yes" "$([ -f "$SANDBOX/.claude/growing-skills/prompts/curator-prompt.md" ] && echo yes || echo no)"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/install.sh" >/dev/null
+assert_eq "T7 idempotent" "1" "$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+
+# T8: uninstall — 큐레이터 항목 제거, 기존 SessionStart 보존, /curator 스킬 제거, 아카이브 보존
+mkdir -p "$SANDBOX/.claude/skills/.archive/keep-me"
+echo x > "$SANDBOX/.claude/skills/.archive/keep-me/SKILL.md"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/uninstall.sh" >/dev/null
+assert_eq "T8 curator hook removed" "0" "$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+assert_eq "T8 existing start kept" "1" "$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("existing-start.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+assert_eq "T8 curator skill removed" "no" "$([ -d "$SANDBOX/.claude/skills/curator" ] && echo yes || echo no)"
+assert_eq "T8 archive preserved" "yes" "$([ -f "$SANDBOX/.claude/skills/.archive/keep-me/SKILL.md" ] && echo yes || echo no)"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
