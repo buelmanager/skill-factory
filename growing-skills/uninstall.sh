@@ -13,12 +13,18 @@ if [ -f "$SETTINGS" ]; then
   jq 'if .hooks.PostToolUse then
         .hooks.PostToolUse = [.hooks.PostToolUse[] | select(.matcher != "Skill")]
         | if (.hooks.PostToolUse | length) == 0 then del(.hooks.PostToolUse) else . end
+      else . end
+      | if .hooks.SessionEnd then
+        .hooks.SessionEnd = [.hooks.SessionEnd[] | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")) | not)]
+        | if (.hooks.SessionEnd | length) == 0 then del(.hooks.SessionEnd) else . end
       else . end' "$SETTINGS" > "$TMP"
   jq -e . "$TMP" >/dev/null
   mv "$TMP" "$SETTINGS"
 fi
 
 rm -f "$CLAUDE_DIR/hooks/skill-telemetry.sh"
+rm -f "$CLAUDE_DIR/hooks/session-end-queue.sh"
+rm -rf "$CLAUDE_DIR/growing-skills"
 
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 if [ -f "$CLAUDE_MD" ] && grep -q "growing-skills-doctrine:begin" "$CLAUDE_MD"; then

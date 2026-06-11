@@ -33,6 +33,31 @@ else
   echo "settings.json: 이미 설치됨 — 건너뜀"
 fi
 
+# 2.5) Phase 2: 패키지(bin/prompts/settings) 배포 + SessionEnd 훅
+mkdir -p "$CLAUDE_DIR/growing-skills/bin" "$CLAUDE_DIR/growing-skills/prompts" "$CLAUDE_DIR/growing-skills/settings"
+cp "$PKG_DIR/bin/"*.sh "$CLAUDE_DIR/growing-skills/bin/"
+chmod +x "$CLAUDE_DIR/growing-skills/bin/"*.sh
+cp "$PKG_DIR/prompts/reviewer-prompt.md" "$CLAUDE_DIR/growing-skills/prompts/"
+cp "$PKG_DIR/settings/headless-settings.json" "$CLAUDE_DIR/growing-skills/settings/"
+cp "$PKG_DIR/hooks/session-end-queue.sh" "$CLAUDE_DIR/hooks/session-end-queue.sh"
+chmod +x "$CLAUDE_DIR/hooks/session-end-queue.sh"
+
+ALREADY_SE=$(jq '[.hooks.SessionEnd[]? | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")))] | length' "$SETTINGS")
+if [ "$ALREADY_SE" -eq 0 ]; then
+  [ -f "$SETTINGS.bak.$TS" ] || cp "$SETTINGS" "$SETTINGS.bak.$TS"
+  TMP=$(mktemp)
+  jq '.hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{
+        "hooks": [{"type": "command",
+                   "command": "~/.claude/hooks/session-end-queue.sh",
+                   "timeout": 60}]
+      }])' "$SETTINGS" > "$TMP"
+  jq -e . "$TMP" >/dev/null
+  mv "$TMP" "$SETTINGS"
+  echo "settings.json: SessionEnd 훅 추가"
+else
+  echo "settings.json: SessionEnd 이미 설치됨 — 건너뜀"
+fi
+
 # 3) CLAUDE.md에 독트린 추가 (마커 기준 멱등)
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 touch "$CLAUDE_MD"

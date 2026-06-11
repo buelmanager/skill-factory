@@ -58,4 +58,23 @@ assert_eq "T4 original content intact" "1" "$(grep -c "^# 기존 내용" "$SANDB
 assert_eq "T4 begin marker untouched" "1" "$(grep -c "growing-skills-doctrine:begin" "$SANDBOX/.claude/CLAUDE.md")"
 teardown
 
+# T5: Phase 2 설치 — 패키지 배포 + SessionEnd 훅 머지 + 멱등
+setup
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/install.sh" >/dev/null
+assert_eq "T5 reviewer deployed" "yes" "$([ -x "$SANDBOX/.claude/growing-skills/bin/run-reviewer.sh" ] && echo yes || echo no)"
+assert_eq "T5 prompt deployed" "yes" "$([ -f "$SANDBOX/.claude/growing-skills/prompts/reviewer-prompt.md" ] && echo yes || echo no)"
+assert_eq "T5 settings deployed" "yes" "$([ -f "$SANDBOX/.claude/growing-skills/settings/headless-settings.json" ] && echo yes || echo no)"
+assert_eq "T5 sessionend hook entry" "1" "$(jq '[.hooks.SessionEnd[]? | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/install.sh" >/dev/null
+assert_eq "T5 idempotent" "1" "$(jq '[.hooks.SessionEnd[]? | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+
+# T6: uninstall — SessionEnd 제거 + 패키지 제거 + 큐 데이터 보존
+mkdir -p "$SANDBOX/.claude/skills/.review-queue"
+echo "digest" > "$SANDBOX/.claude/skills/.review-queue/keep.md"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/uninstall.sh" >/dev/null
+assert_eq "T6 sessionend removed" "0" "$(jq '[.hooks.SessionEnd[]? | select((.hooks // []) | any(.command // "" | contains("session-end-queue.sh")))] | length' "$SANDBOX/.claude/settings.json")"
+assert_eq "T6 package removed" "no" "$([ -d "$SANDBOX/.claude/growing-skills" ] && echo yes || echo no)"
+assert_eq "T6 queue preserved" "1" "$(ls "$SANDBOX/.claude/skills/.review-queue"/*.md | wc -l | tr -d ' ')"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
