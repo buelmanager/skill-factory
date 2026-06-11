@@ -37,7 +37,7 @@ fi
 mkdir -p "$CLAUDE_DIR/growing-skills/bin" "$CLAUDE_DIR/growing-skills/prompts" "$CLAUDE_DIR/growing-skills/settings"
 cp "$PKG_DIR/bin/"*.sh "$CLAUDE_DIR/growing-skills/bin/"
 chmod +x "$CLAUDE_DIR/growing-skills/bin/"*.sh
-cp "$PKG_DIR/prompts/reviewer-prompt.md" "$CLAUDE_DIR/growing-skills/prompts/"
+cp "$PKG_DIR/prompts/"*.md "$CLAUDE_DIR/growing-skills/prompts/"
 cp "$PKG_DIR/settings/headless-settings.json" "$CLAUDE_DIR/growing-skills/settings/"
 cp "$PKG_DIR/hooks/session-end-queue.sh" "$CLAUDE_DIR/hooks/session-end-queue.sh"
 chmod +x "$CLAUDE_DIR/hooks/session-end-queue.sh"
@@ -56,6 +56,28 @@ if [ "$ALREADY_SE" -eq 0 ]; then
   echo "settings.json: SessionEnd 훅 추가"
 else
   echo "settings.json: SessionEnd 이미 설치됨 — 건너뜀"
+fi
+
+# 2.7) Phase 3: 큐레이터 훅 + /curator 스킬
+cp "$PKG_DIR/hooks/session-start-curator.sh" "$CLAUDE_DIR/hooks/session-start-curator.sh"
+chmod +x "$CLAUDE_DIR/hooks/session-start-curator.sh"
+mkdir -p "$CLAUDE_DIR/skills/curator"
+cp "$PKG_DIR/skill/SKILL.md" "$CLAUDE_DIR/skills/curator/SKILL.md"
+
+ALREADY_SS=$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")))] | length' "$SETTINGS")
+if [ "$ALREADY_SS" -eq 0 ]; then
+  [ -f "$SETTINGS.bak.$TS" ] || cp "$SETTINGS" "$SETTINGS.bak.$TS"
+  TMP=$(mktemp)
+  jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{
+        "hooks": [{"type": "command",
+                   "command": "~/.claude/hooks/session-start-curator.sh",
+                   "timeout": 10}]
+      }])' "$SETTINGS" > "$TMP"
+  jq -e . "$TMP" >/dev/null
+  mv "$TMP" "$SETTINGS"
+  echo "settings.json: SessionStart 큐레이터 훅 추가"
+else
+  echo "settings.json: SessionStart 큐레이터 이미 설치됨 — 건너뜀"
 fi
 
 # 3) CLAUDE.md에 독트린 추가 (마커 기준 멱등)
