@@ -47,4 +47,15 @@ assert_eq "T3 doctrine removed" "0" "$(grep -c "growing-skills-doctrine:begin" "
 assert_eq "T3 original content intact" "1" "$(grep -c "^# 기존 내용" "$SANDBOX/.claude/CLAUDE.md")"
 teardown
 
+# T4: end 마커가 사라진 비정상 CLAUDE.md → uninstall이 내용을 지우지 않음 (데이터 보호)
+setup
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/install.sh" >/dev/null
+sed '/growing-skills-doctrine:end/d' "$SANDBOX/.claude/CLAUDE.md" > "$SANDBOX/tmp.md" && mv "$SANDBOX/tmp.md" "$SANDBOX/.claude/CLAUDE.md"
+echo "# 마커 아래 소중한 내용" >> "$SANDBOX/.claude/CLAUDE.md"
+GROWING_SKILLS_CLAUDE_DIR="$SANDBOX/.claude" bash "$PKG/uninstall.sh" >/dev/null
+assert_eq "T4 content below survives" "1" "$(grep -c "마커 아래 소중한 내용" "$SANDBOX/.claude/CLAUDE.md")"
+assert_eq "T4 original content intact" "1" "$(grep -c "^# 기존 내용" "$SANDBOX/.claude/CLAUDE.md")"
+assert_eq "T4 begin marker untouched" "1" "$(grep -c "growing-skills-doctrine:begin" "$SANDBOX/.claude/CLAUDE.md")"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

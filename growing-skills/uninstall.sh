@@ -22,10 +22,15 @@ rm -f "$CLAUDE_DIR/hooks/skill-telemetry.sh"
 
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
 if [ -f "$CLAUDE_MD" ] && grep -q "growing-skills-doctrine:begin" "$CLAUDE_MD"; then
-  cp "$CLAUDE_MD" "$CLAUDE_MD.bak.$TS"
-  TMP=$(mktemp)
-  sed '/<!-- growing-skills-doctrine:begin -->/,/<!-- growing-skills-doctrine:end -->/d' "$CLAUDE_MD" > "$TMP"
-  mv "$TMP" "$CLAUDE_MD"
+  if grep -q "growing-skills-doctrine:end" "$CLAUDE_MD"; then
+    cp "$CLAUDE_MD" "$CLAUDE_MD.bak.$TS"
+    TMP=$(mktemp)
+    sed '/<!-- growing-skills-doctrine:begin -->/,/<!-- growing-skills-doctrine:end -->/d' "$CLAUDE_MD" > "$TMP"
+    mv "$TMP" "$CLAUDE_MD"
+  else
+    # end 마커 없음 — 범위 삭제가 파일 끝까지 지워버리므로 자동 제거 중단 (데이터 보호)
+    echo "WARN: 독트린 end 마커가 없어 CLAUDE.md 자동 정리를 건너뜀 — 수동으로 제거하세요"
+  fi
 fi
 
 echo "제거 완료. 이벤트 데이터는 보존됨: $CLAUDE_DIR/skills/.usage-events.jsonl"
