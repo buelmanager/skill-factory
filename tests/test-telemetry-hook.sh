@@ -39,4 +39,40 @@ assert_eq "T2 exit 0" "0" "$?"
 assert_eq "T2 no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
 teardown
 
+# T3: 플러그인 스킬(콜론 포함) → 기록 안 함
+setup
+payload "superpowers:writing-skills" | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T3 no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+teardown
+
+# T4: 글로벌에 없는 스킬 → 기록 안 함
+setup
+payload "nonexistent-skill" | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T4 no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+teardown
+
+# T5: 깨진 JSON → exit 0, 기록 안 함
+setup
+printf 'not-json{{{' | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T5 exit 0" "0" "$?"
+assert_eq "T5 no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+teardown
+
+# T6: Skill 외 도구 페이로드(tool_input에 skill 없음) → 기록 안 함
+setup
+printf '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}' \
+  | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T6 no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+teardown
+
+# T7: 동시 append 10개 → 10줄 전부 온전한 JSON (O_APPEND 원자성)
+setup
+for i in $(seq 1 10); do
+  payload "known-skill" | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK" &
+done
+wait
+assert_eq "T7 ten lines" "10" "$(wc -l < "$EVENTS" | tr -d ' ')"
+assert_eq "T7 all valid json" "10" "$(jq -c . "$EVENTS" 2>/dev/null | wc -l | tr -d ' ')"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
