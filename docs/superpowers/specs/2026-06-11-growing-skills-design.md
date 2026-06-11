@@ -1,0 +1,146 @@
+# growing-skills — Claude Code 자기 성장 스킬 시스템 설계
+
+**날짜**: 2026-06-11
+**상태**: 설계 확정 (어드버서리얼 검증 반영), 구현 전
+**근거**: NousResearch/hermes-agent 소스 분석 (7-에이전트 워크플로, 257회 도구 호출) + 인라인 어드버서리얼 검증
+
+---
+
+## 1. 목적
+
+Claude Code가 Hermes Agent처럼 **쓸수록 스스로 성장하는 에이전트**가 되도록, 스킬을 성장의 단위로 삼는 자기 진화 루프를 글로벌(`~/.claude` 수준)로 구축한다.
+
+성장의 네 동사:
+
+| 동사 | 의미 |
+|---|---|
+| **기억** | 어떤 스킬이 언제 쓰였는지 텔레메트리로 기록; 절차적 지식을 스킬로 라우팅 |
+| **생성** | 세션 경험에서 재사용 가능한 절차를 추출해 스킬 후보로 작성 |
+| **발전** | 틀린 스킬 즉시 패치; 좁은 스킬 다수를 클래스 수준 우산 스킬로 통합 |
+| **삭제** | 미사용 스킬을 아카이브(복원 가능)해 인덱스를 건강하게 유지 |
+
+## 2. 근거: Hermes는 실제로 어떻게 작동하는가 (소스 확인 사실)
+
+본질은 **프롬프트 텍스트 4개 + JSON 사이드카 1개 + 파일 이동**이다. 임베딩·데몬·학습 파이프라인 없음. 스킬 포맷은 의도적으로 Claude 호환 (`tools/skills_tool.py:1-67`이 Anthropic 64/1024자 제한 인용) — 포맷 변환 불필요.
+
+세 시간 척도:
+
+1. **상시 독트린** (`agent/prompt_builder.py:143-179`): 부분 관련 스킬 필수 로드(검색 = LLM이 name+description 인덱스를 읽음), 틀리면 즉시 패치, 5+ 도구 호출 작업 후 저장, 라우팅(사실→메모리 800tk 상한 / 절차→스킬 / 에피소드→세션DB). 모든 로드/패치가 `~/.hermes/skills/.usage.json`에 기록 — 이 파일이 이후 모든 자동 결정의 유일한 증거 기반.
+2. **턴 단위 백그라운드 리뷰** (`agent/background_review.py`): 도구 10회+ 턴 후 에이전트 포크가 대화를 재독. **선호 사다리**(로드된 스킬 패치 > 우산 패치 > 지원 파일 > 새 스킬)와 **배우지-말 것 블랙리스트**(환경 의존 실패, "도구 X 고장" 주장, 일회성 서사). 이 포크가 만든 스킬만 `agent_created` → 자동 큐레이션 대상. 사용자 요청 스킬은 영구 면제.
+3. **주간 큐레이터** (`agent/curator.py`): 데몬 없이 타임스탬프 폴링. 스냅샷 → 결정론적 수명 전이(30일→stale, 90일→`.archive/`로 mv) → LLM 통합 패스(좁은 스킬 → 우산, `absorbed_into` 선언 필수) → 참조 재작성 → REPORT.md.
+
+이식하지 않는 것: `hermes insights`(학습과 무관한 통계), `hermes-agent-self-evolution` 레포(제품 미연결 연구 하니스, 핵심 추출 코드 결함), LLM 패스의 하드 삭제(`rmtree` — 문서화된 아카이브 시맨틱이 더 안전), `prune_builtins`(기존 스킬까지 정리 — 위험).
+
+## 3. 설계 원칙 — Hermes 대비 3가지 보수화 (검증에서 도출)
+
+1. **제안-승격 분리 (probation)**: 리뷰어는 스킬을 직접 설치하지 않고 제안만 한다. 승격 전 스킬은 어떤 세션에도 로드되지 않으므로 **틀린 교훈의 전파가 0** — "오류에 오류가 더해지는" 루프를 구조적으로 차단. skill-factory의 Iron Law("실패하는 테스트 없이는 스킬도 없다")와 정합.
+2. **자격의 반전**: 큐레이터는 "`.usage.json`에 기록 없는 스킬"이 아니라 "**`created_by: agent` 항목이 존재하는 스킬만**" 관리. 기존 수제 스킬 58개(gstack 1.0GB 포함)는 구조적으로 불가침.
+3. **자동 재작성 최소화**: 참조 재작성은 agent 관리 스킬 내부로만. 사용자 파일(CLAUDE.md 등)은 REPORT.md에 수동 확인 목록으로.
+
+## 4. 아키텍처 (6 레이어)
+
+### Layer 0 — 상태 파일
+
+```
+~/.claude/skills/.usage-events.jsonl   # append-only 이벤트 로그 (O_APPEND 원자성)
+                                       # {ts, skill, event: use|view|patch, session}
+~/.claude/skills/.usage.json           # 큐레이터가 패스 때 이벤트를 컴팩션한 스냅샷
+                                       # {skill: {use,view,patch, last_activity_at, created_at,
+                                       #          state: active|stale|archived, pinned, created_by}}
+~/.claude/skills/.curator_state        # {last_run_at, paused}
+~/.claude/skills/.archive/<name>/      # 아카이브 (mv, 복원 가능)
+~/.claude/skills/.curator_backups/     # agent 관리 스킬만 tar.gz, 최근 5개 (KB~MB)
+~/.claude/skill-proposals/<name>/      # 수습 단계 스킬 (디스커버리 대상 밖)
+```
+
+설계 결정: 동시 세션의 read-modify-write 경합 때문에 라이브 기록은 JSONL append로, 구조화 스냅샷은 큐레이터 단독 작성으로 분리 (Hermes는 인프로세스 파일락 — 셸 훅에는 append가 더 견고).
+
+### Layer 1 — 독트린 (SKILLS_GUIDANCE 이식)
+
+`~/.claude/CLAUDE.md`에 추가하는 짧은 섹션 (~150단어 상한):
+
+- 라우팅: 절차적 지식("어떻게 X를 한다")은 스킬로, 사실은 메모리로, 에피소드는 트랜스크립트로
+- 부분적으로라도 관련된 스킬은 로드한다
+- 로드한 스킬이 틀렸으면 그 자리에서 패치한다 (수정 사실을 사용자에게 보고)
+- 복잡한 작업(5+ 도구 호출) 완료 후 재사용 가능 절차면 스킬 제안을 권고
+
+가장 싸고 레버리지가 가장 큰 조각. 자동화 없이도 반쯤 작동한다.
+
+### Layer 2 — 텔레메트리 훅
+
+- `PostToolUse` 훅, `Skill` 매처: 호출된 스킬명을 `.usage-events.jsonl`에 append
+- 글로벌 스킬(`~/.claude/skills/*`)만 집계 — 플러그인·프로젝트 스킬은 경로 필터로 제외
+- view-counts-as-use 관례 채택 (수명 시계가 로드 기준으로 동작)
+- 훅 스크립트는 <10ms 목표 (append 한 줄), 실패해도 도구 호출을 막지 않음
+
+### Layer 3 — 백그라운드 리뷰어 (생성·발전 제안)
+
+- **발동**: `SessionEnd` 훅. 조건: 세션이 도구 N회(기본 15) 이상 사용 + 마커 없음
+- **재귀 가드 (3중)**:
+  1. 스폰 시 `GROWING_SKILLS_BG=1` 환경변수 — 모든 훅 스크립트 첫 줄에서 발견 시 즉시 exit 0
+  2. 락파일(`/tmp/growing-skills-reviewer.lock`)로 동시 실행 1개
+  3. 훅에서 detach 스폰 (세션 종료를 막지 않음)
+- **입력 전처리**: 훅 스크립트가 트랜스크립트(실측 3~13MB)를 사용자 메시지 + 도구 호출명 + 에러 + 어시스턴트 요지로 압축 (~200KB 상한) — 별도 프로세스는 Hermes의 프롬프트 캐시 상속(~26% 절감 구조)이 없으므로 필수
+- **실행**: 헤드리스 `claude -p --model sonnet --strict-mcp-config` + 이식한 리뷰 프롬프트(선호 사다리 + 블랙리스트 원문 이식) + 쓰기 권한은 `~/.claude/skill-proposals/`와 agent 관리 스킬 디렉터리로 한정
+- **산출**:
+  - 새 절차 발견 → `skill-proposals/<name>/SKILL.md` (frontmatter에 `created_by: agent`, `proposed_at`, 근거 세션)
+  - 기존 **agent 승격 스킬**의 결함 발견 → 직접 패치 (이미 검증된 스킬의 개선이므로). 쓰기 경계 강제: 권한은 `~/.claude/skills` 전체로 열되, 실행 후 래퍼 스크립트가 변경 파일 목록을 검사해 agent 관리 디렉터리 밖 변경은 스냅샷에서 자동 복원 + REPORT에 위반 기록
+  - 기존 **사용자 스킬**의 결함 발견 → 패치 제안을 REPORT에만 (직접 수정 금지)
+- **블랙리스트** (Hermes 원문 이식): 환경 의존적 실패, "도구 X가 고장" 주장, 일시적 오류, 일회성 서사는 학습 금지
+
+### Layer 4 — 큐레이터 (발전·삭제)
+
+- **발동**: `SessionStart` 훅이 `.curator_state` 확인, 7일 경과 시 **detach 스폰** (시작 지연 0). 수동 `/curator run`도 가능
+- **패스 순서**:
+  1. 이벤트 로그 컴팩션 → `.usage.json` 갱신
+  2. agent 관리 스킬만 tar.gz 스냅샷 (5개 보관)
+  3. 결정론적 수명 전이: `created_by: agent`인 스킬만, 30일 미사용→stale, 90일→`.archive/`로 mv. **하드 삭제 경로 자체가 없음**
+  4. 제안 정리: `skill-proposals/`에서 60일 이상 미승격 제안은 자동 폐기
+  5. LLM 통합 패스 (헤드리스, agent 스킬 ≥ 8개일 때만): 좁은 스킬 클러스터 → 우산 통합. 산출물은 **`moves.json` 매니페스트** `{from, into|null, reason}` — 스크립트가 매니페스트 검증 후 실행 (LLM이 직접 mv하지 않음)
+  6. 참조 재작성: agent 관리 스킬 내부만. 사용자 파일 내 참조는 REPORT.md에 목록
+  7. `REPORT.md` 발행 (`~/.claude/skills/.curator_reports/<date>.md`)
+- **인덱스 예산**: 승격된 agent 스킬 15개 상한 — 초과 시 통합 패스가 우선 발동
+
+### Layer 5 — 컨트롤 서피스 (`/curator` 스킬)
+
+```
+/curator status      # agent 스킬 수, stale 후보, 대기 중 제안, 마지막 패스
+/curator review      # ★ 승격 게이트: 제안 스킬을 보여주고 승인/수정/거부
+                     #   (선택) skill-factory 압박 테스트 통과를 승격 조건으로
+/curator run | dry-run
+/curator pin <skill> | pause | resume
+/curator restore <skill> | rollback
+```
+
+보호 규칙: pinned·사용자 생성·외부 설치(플러그인/마켓플레이스) 스킬은 자동 삭제 불가. 사용자 스킬도 frontmatter `curate: true`로 수명 관리에 옵트인 가능 (단, 통합 시 흡수가 아니라 REPORT 제안만).
+
+## 5. 오류 증폭 차단 회로 (명시적 설계 목표)
+
+| 차단기 | 끊는 고리 |
+|---|---|
+| 제안-승격 분리 | 틀린 스킬이 세션에 로드되는 것 자체를 차단 (전파 0) |
+| 승격 게이트 (인간 또는 테스트) | 검증 없는 지식의 정식 편입 차단 |
+| 블랙리스트 | 환경 노이즈가 교훈으로 굳는 것 차단 |
+| 60일 제안 자동 폐기 | 제안 더미의 무한 적체 차단 |
+| 인덱스 예산 15개 | 컨텍스트 오염의 상한 |
+| 스냅샷 + 아카이브-only | 모든 자동 결정의 가역성 보장 |
+| REPORT.md | 모든 자동 행동의 인간 가시성 |
+
+## 6. 구현 단계 (skill-factory TDD)
+
+- **Phase 0 — 스파이크 (전제 검증, 코드로 확정)**:
+  1. `~/.claude/skills` 아래 점-디렉터리·`skill-proposals/`가 스킬 디스커버리에 보이지 않는지 (가짜 `CLAUDE_CONFIG_DIR`로 실험)
+  2. PostToolUse `Skill` 매처의 입력 페이로드에서 스킬명 필드 확인
+  3. 헤드리스 `claude -p`의 경로 한정 쓰기 권한 문법 + `--strict-mcp-config` 동작
+  4. 전처리된 트랜스크립트로 리뷰어 1회 실측 비용
+- **Phase 1**: Layer 0 + 2 (사이드카 + 텔레메트리 훅) — 데이터 축적 시작
+- **Phase 2**: Layer 1 (독트린) — 즉시 가치
+- **Phase 3**: Layer 3 (리뷰어) — RED: 스킬 제안 없이 끝나는 세션 베이스라인 → GREEN: 프롬프트 이식 → REFACTOR: 쓰레기 스킬 유도 압박 시나리오로 블랙리스트 검증
+- **Phase 4**: Layer 4 + 5 (큐레이터 + 컨트롤) — dry-run 1주 후 실모드
+- **Phase 5**: 도그푸딩 2주 — REPORT 검토, 프롬프트 튜닝, 승격 게이트 마찰 측정
+
+## 7. 미해결 질문 (구현 중 결정)
+
+1. 승격 게이트의 기본값: 인간 승인만 vs 압박 테스트 의무화 (Phase 5에서 마찰 보고 결정)
+2. 리뷰어 발동 임계(도구 15회)와 큐레이터 주기(7일)의 튜닝
+3. 프로젝트 로컬 스킬(`.claude/skills`)에 대한 동일 루프의 확장 여부 (v2 후보)
