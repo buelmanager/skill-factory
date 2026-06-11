@@ -75,4 +75,15 @@ assert_eq "T7 ten lines" "10" "$(wc -l < "$EVENTS" | tr -d ' ')"
 assert_eq "T7 all valid json" "10" "$(jq -c . "$EVENTS" 2>/dev/null | wc -l | tr -d ' ')"
 teardown
 
+# T8: 경로 문자가 든 스킬명 → 기록 안 함 (경로 순회 방지)
+setup
+mkdir -p "$TESTROOT/../outside-skill" 2>/dev/null
+printf -- "---\nname: outside\ndescription: t\n---\n" > "$TESTROOT/../outside-skill/SKILL.md"
+payload "../outside-skill" | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T8 traversal no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+payload "sub/dir-skill" | GROWING_SKILLS_ROOT="$TESTROOT" bash "$HOOK"
+assert_eq "T8 nested slash no file" "no" "$([ -f "$EVENTS" ] && echo yes || echo no)"
+rm -rf "$TESTROOT/../outside-skill"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

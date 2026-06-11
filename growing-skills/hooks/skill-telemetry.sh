@@ -17,6 +17,7 @@ LINE=$(printf '%s' "$INPUT" | jq -c --arg ts "$TS" '
 [ -z "$LINE" ] && exit 0
 
 SKILL=$(printf '%s' "$LINE" | jq -r '.skill')
+case "$SKILL" in */*|*..*) exit 0 ;; esac   # 경로 문자가 든 스킬명 거부 (SKILLS_ROOT 탈출 방지)
 [ -f "$SKILLS_ROOT/$SKILL/SKILL.md" ] || exit 0   # 글로벌 스킬만 집계
 
 printf '%s\n' "$LINE" >> "$SKILLS_ROOT/.usage-events.jsonl" 2>/dev/null
