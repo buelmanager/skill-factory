@@ -27,13 +27,15 @@ assert_eq "T1 header" "1" "$(printf '%s' "$OUT" | grep -c "=== SESSION sess-abc"
 
 # T2: 시크릿 마스킹
 cat > "$WORK/t2.jsonl" <<'EOF'
-{"type":"user","message":{"content":"key is sk-ant-api03-AbCdEf123456789 and ghp_AbCdEfGh123456789012 and password=supersecret999"}}
+{"type":"user","message":{"content":"key is sk-ant-api03-AbCdEf123456789 and ghp_AbCdEfGh123456789012 and password=supersecret999 jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c and db postgres://admin:hunter2pw@host/db"}}
 EOF
 OUT=$(bash "$BIN" "$WORK/t2.jsonl" "s" "/tmp")
 assert_eq "T2 no sk-ant" "0" "$(printf '%s' "$OUT" | grep -c "sk-ant-api03")"
 assert_eq "T2 no ghp" "0" "$(printf '%s' "$OUT" | grep -c "ghp_AbCdEfGh")"
 assert_eq "T2 no password value" "0" "$(printf '%s' "$OUT" | grep -c "supersecret999")"
 assert_eq "T2 masked marker present" "yes" "$([ "$(printf '%s' "$OUT" | grep -c 'MASKED')" -ge 1 ] && echo yes)"
+assert_eq "T2 no jwt" "0" "$(printf '%s' "$OUT" | grep -c "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c")"
+assert_eq "T2 no db password" "0" "$(printf '%s' "$OUT" | grep -c "hunter2pw")"
 
 # T3: 200KB 상한
 BIG=$(awk 'BEGIN{for(i=0;i<300000;i++)printf "a"}')

@@ -17,13 +17,14 @@ NOW=$(date +%s)
 command -v jq >/dev/null 2>&1 || exit 0
 command -v claude >/dev/null 2>&1 || exit 0
 
-# 락 (PID, epoch 2줄; 2시간 초과 시 stale로 보고 해제)
-if [ -f "$LOCK" ]; then
+# 락 (PID, epoch 2줄; 2시간 초과 시 stale 해제). noclobber 원자 쓰기로 TOCTOU 이중 실행 차단.
+acquire_lock() { ( set -o noclobber; printf '%s\n%s\n' "$$" "$NOW" > "$LOCK" ) 2>/dev/null; }
+if ! acquire_lock; then
   LTS=$(sed -n 2p "$LOCK" 2>/dev/null); [ -z "$LTS" ] && LTS=0
   [ $((NOW - LTS)) -lt 7200 ] && exit 0
   rm -f "$LOCK"
+  acquire_lock || exit 0
 fi
-printf '%s\n%s\n' "$$" "$NOW" > "$LOCK"
 trap 'rm -f "$LOCK"' EXIT
 
 # 일간 게이트

@@ -34,6 +34,8 @@ jq -r '
     -e 's/(gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}/[MASKED]/g' \
     -e 's/AKIA[A-Z0-9]{16}/[MASKED]/g' \
     -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[MASKED]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/[MASKED-JWT]/g' \
+    -e 's#(://[^/:@" ]{1,64}):[^@" ]{1,128}@#\1:[MASKED]@#g' \
     -e 's/[Bb]earer [A-Za-z0-9._~+\/=-]{20,}/Bearer [MASKED]/g' \
     -e 's/((api[_-]?key|API[_-]?KEY|token|TOKEN|secret|SECRET|password|PASSWORD|passwd|credential)["'"'"' ]*[:=]["'"'"' ]*)[^"'"'"' ]{8,}/\1[MASKED]/g' \
 | head -c 200000
