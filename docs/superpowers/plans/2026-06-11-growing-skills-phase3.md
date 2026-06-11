@@ -426,7 +426,7 @@ setup() {
 #!/bin/bash
 printf '%s\n' "\$@" > "$SB/args.log"
 cat > "$SB/stdin.log"
-STAGING=\$(grep -o '/[^ ]*\.curator_staging' "$SB/stdin.log" | head -1)
+STAGING=\$(grep -ho '/[^ ]*\.curator_staging' "$SB/args.log" "$SB/stdin.log" 2>/dev/null | head -1)
 if [ "\${STUB_MODE:-good}" = "bad-manifest" ]; then
   printf '{"moves":[{"from":"NOT-IN-INPUT","into":"x","reason":"r"}],"summary":"s"}\n' > "\$STAGING/moves.json"
 else
@@ -463,7 +463,7 @@ setup
 run_pass --dry-run >/dev/null
 assert_eq "T2 no stale" "active" "$(jq -r '.skills["old-a"].state' "$US")"
 assert_eq "T2 no archive" "no" "$([ -d "$SK/.archive/old-b" ] && echo yes || echo no)"
-assert_eq "T2 report dry" "1" "$(grep -lc "DRY-RUN" "$SK/.curator_reports"/*.md | wc -l | tr -d ' ')"
+assert_eq "T2 report dry" "1" "$(grep -l "DRY-RUN" "$SK/.curator_reports"/*.md | wc -l | tr -d ' ')"
 assert_eq "T2 no stamp" "no" "$([ -f "$ST" ] && echo yes || echo no)"
 teardown
 
@@ -481,8 +481,8 @@ teardown
 # T4: LLM 통합 — 신선한 agent 스킬 2개 + CMIN=2 → 우산 적용, from들 archive, 참조 재작성
 setup
 mk_skill "$SK" fresh-1; mk_skill "$SK" fresh-2
+mkdir -p "$SK/fresh-3"
 printf -- "---\nname: fresh-3\ndescription: t\ncreated_by: agent\n---\nsee fresh-1 for details\n" > "$SK/fresh-3/SKILL.md" # 참조 재작성 대상
-mkdir -p "$SK/fresh-3" 2>/dev/null
 NOWISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 jq --arg now "$NOWISO" '.skills += {"fresh-1":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"fresh-2":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"fresh-3":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false}}' "$US" > "$US.tmp" && mv "$US.tmp" "$US"
 CMIN=2 run_pass >/dev/null
@@ -503,7 +503,7 @@ STUB_MODE=bad-manifest; export STUB_MODE
 CMIN=2 run_pass >/dev/null
 unset STUB_MODE
 assert_eq "T5 fresh-1 intact" "yes" "$([ -d "$SK/fresh-1" ] && echo yes || echo no)"
-assert_eq "T5 rejected in report" "1" "$(grep -lc "매니페스트 검증 실패" "$SK/.curator_reports"/*.md | wc -l | tr -d ' ')"
+assert_eq "T5 rejected in report" "1" "$(grep -l "매니페스트 검증 실패" "$SK/.curator_reports"/*.md | wc -l | tr -d ' ')"
 teardown
 
 # T6: paused → 즉시 종료, 무변경
@@ -633,7 +633,7 @@ find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} 
 
 # 5) LLM 우산 통합 (active agent 스킬이 CONSOLIDATE_MIN 이상, dry-run 제외)
 ACTIVE_AGENT=$(jq -r '[.skills | to_entries[] | select(.value.created_by=="agent" and (.value.state // "active")=="active" and (.value.pinned // false | not))] | map(.key) | .[]' "$USAGE")
-ACTIVE_COUNT=$(printf '%s\n' "$ACTIVE_AGENT" | grep -c . || echo 0)
+ACTIVE_COUNT=$(printf '%s\n' "$ACTIVE_AGENT" | grep -c .)
 echo "## 우산 통합" >> "$REPORT"
 if [ "$DRY" -eq 0 ] && [ "$ACTIVE_COUNT" -ge "$CONSOLIDATE_MIN" ] && command -v claude >/dev/null 2>&1; then
   rm -rf "$STAGING"; mkdir -p "$STAGING"
