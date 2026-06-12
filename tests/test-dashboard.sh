@@ -123,4 +123,8 @@ assert_contains "T7 feed reason" "$HTML" "사용자 승격"
 assert_contains "T7 provenance" "$HTML" "스킬 일대기"
 assert_contains "T7 prov skill" "$HTML" "alpha"
 
+# T8: 실제 ~/.claude 데이터로 모델 생성
+SMOKE=$(bash "$RUN" --json 2>/dev/null | jq -e '.generated_at and (.skills|type=="array") and (.lifecycle|type=="array")' >/dev/null 2>&1 && echo ok || echo no)
+assert_eq "T8 real-data ok" "ok" "$SMOKE"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
