@@ -60,4 +60,25 @@ assert_eq "T3 pending"           "1" "$(printf '%s' "$OUT" | jq -r '.summary.pro
 assert_eq "T3 queue"             "1" "$(printf '%s' "$OUT" | jq -r '.summary.review_queue')"
 assert_eq "T3 paused"            "true" "$(printf '%s' "$OUT" | jq -r '.summary.paused')"
 
+# T4: events_by_day + lifecycle(로그+백필, 로그 우선)
+new_env
+printf '%s\n' \
+  '{"ts":"2026-06-10T10:00:00Z","skill":"a","event":"use","session":"s"}' \
+  '{"ts":"2026-06-10T11:00:00Z","skill":"b","event":"use","session":"s"}' \
+  'broken' \
+  '{"ts":"2026-06-11T09:00:00Z","skill":"a","event":"use","session":"s"}' > "$SK/.usage-events.jsonl"
+printf '%s\n' '{"ts":"2026-06-11T14:00:00Z","event":"archived","skill":"old-b","reason":"95일 미사용","metadata":{"idle_days":95}}' > "$SK/.lifecycle-events.jsonl"
+mkdir -p "$SK/.curator_reports"
+printf '# r\n- 실행: 2026-06-11T14:23:00Z\n## 수명 전이\n- old-a: 40일 미사용 → stale\n- old-b: 95일 미사용 → 아카이브\n## 제안 정리\n- dead-x: 65일 초과 미승격 → 폐기\n' > "$SK/.curator_reports/2026-06-11-142300.md"
+mkdir -p "$PR/born-1"; printf -- "---\nname: born-1\nproposed_at: 2026-06-09\nsource_session: sess-1\nrationale: 반복 패턴 X 때문\n---\nx\n" > "$PR/born-1/SKILL.md"
+OUT=$(runjson)
+assert_eq "T4 day0610"      "2" "$(printf '%s' "$OUT" | jq -r '.events_by_day[]|select(.date=="2026-06-10").count')"
+assert_eq "T4 day0611"      "1" "$(printf '%s' "$OUT" | jq -r '.events_by_day[]|select(.date=="2026-06-11").count')"
+assert_eq "T4 lc stale"     "old-a" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="stale").skill')"
+assert_eq "T4 lc proposed"  "반복 패턴 X 때문" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="proposed" and .skill=="born-1").reason')"
+# old-b archived: 로그(source=log) 우선, 중복 1건만
+assert_eq "T4 archived src" "log" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="archived" and .skill=="old-b").source')"
+assert_eq "T4 archived dedup" "1" "$(printf '%s' "$OUT" | jq -r '[.lifecycle[]|select(.event=="archived" and .skill=="old-b")]|length')"
+assert_eq "T4 lc discard"   "dead-x" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="discarded").skill')"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
