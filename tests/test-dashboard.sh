@@ -5,7 +5,7 @@ PKG="$(cd "$(dirname "$0")/.." && pwd)/growing-skills"
 RUN="$PKG/bin/dashboard.sh"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "PASS: $1"; else FAIL=$((FAIL+1)); echo "FAIL: $1 (exp [$2] got [$3])"; fi; }
-assert_contains() { if printf '%s' "$2" | grep -qF "$3"; then PASS=$((PASS+1)); echo "PASS: $1"; else FAIL=$((FAIL+1)); echo "FAIL: $1 (missing [$3])"; fi; }
+assert_contains() { if printf '%s' "$2" | grep -qF -- "$3"; then PASS=$((PASS+1)); echo "PASS: $1"; else FAIL=$((FAIL+1)); echo "FAIL: $1 (missing [$3])"; fi; }
 iso_days_ago() { date -j -u -v-"$1"d +%Y-%m-%dT%H:%M:%SZ; }
 mk_skill() { mkdir -p "$1/$2"; printf -- "---\nname: %s\ndescription: Use when testing\ncreated_by: %s\n---\nbody\n" "$2" "$3" > "$1/$2/SKILL.md"; }
 new_env() { SB=$(mktemp -d); SK="$SB/skills"; PR="$SB/proposals"; mkdir -p "$SK" "$PR"; }
@@ -80,5 +80,17 @@ assert_eq "T4 lc proposed"  "반복 패턴 X 때문" "$(printf '%s' "$OUT" | jq 
 assert_eq "T4 archived src" "log" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="archived" and .skill=="old-b").source')"
 assert_eq "T4 archived dedup" "1" "$(printf '%s' "$OUT" | jq -r '[.lifecycle[]|select(.event=="archived" and .skill=="old-b")]|length')"
 assert_eq "T4 lc discard"   "dead-x" "$(printf '%s' "$OUT" | jq -r '.lifecycle[]|select(.event=="discarded").skill')"
+
+# T5: HTML 셸 + 요약/기준
+new_env
+mk_skill "$SK" alpha agent
+jq -n '{skills:{alpha:{use:7,created_by:"agent",state:"active",pinned:false,first_seen:"2026-06-01T00:00:00Z",last_activity_at:"2026-06-10T00:00:00Z"}},compacted_at:null}' > "$SK/.usage.json"
+HTML=$(runjson | render)
+assert_contains "T5 html open"  "$HTML" "<html"
+assert_contains "T5 html close" "$HTML" "</html>"
+assert_contains "T5 title"      "$HTML" "Growing Skills"
+assert_contains "T5 palette"    "$HTML" "--series-output-token"
+assert_contains "T5 threshold"  "$HTML" "90"
+assert_eq "T5 no raw subst" "0" "$(printf '%s' "$HTML" | grep -cE '\{\{|__[A-Z_]+__')"
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

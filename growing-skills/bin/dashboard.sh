@@ -151,9 +151,82 @@ build_model() {
         skills:$skills2, events_by_day:$events, lifecycle:$lifecycle }'
 }
 
+render_html() {
+  local model; model=$(cat)
+  local css cards thresholds_rows gen paused_badge
+  css=$(cat <<'CSS'
+:root{--bg:#041c1c;--surface:#0a2a2a;--surface2:#0e3535;--border:#14494a;
+--text:#ffe6cb;--muted:#8fb3a8;--accent:#34d399;
+--series-input-token:#ffe6cb;--series-output-token:#34d399;
+--warn:#f59e0b;--danger:#ef4444;--stale:#6b7280;
+--hm0:#0a2a2a;--hm1:#0f5132;--hm2:#1a7a4a;--hm3:#2bb673;--hm4:#34d399;}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);
+font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:24px}
+h1{font-size:22px;margin:0}h2{font-size:15px;color:var(--muted);text-transform:uppercase;
+letter-spacing:.05em;margin:32px 0 12px}.sub{color:var(--muted);font-size:12px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px}
+.card .n{font-size:26px;font-weight:600}.card .l{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);cursor:pointer;user-select:none}tr:hover td{background:var(--surface2)}
+.badge{padding:1px 8px;border-radius:99px;font-size:11px}
+.badge.active{background:rgba(52,211,153,.18);color:var(--accent)}
+.badge.stale{background:rgba(107,114,128,.25);color:#cbd5d5}
+.badge.archived{background:rgba(239,68,68,.16);color:#fca5a5}
+.bars{display:flex;align-items:flex-end;gap:3px;height:160px}
+.bars .b{flex:1;background:var(--series-output-token);border-radius:2px 2px 0 0;min-height:1px}
+.pill{display:inline-block;background:var(--surface2);border:1px solid var(--border);
+border-radius:8px;padding:8px 12px;margin:4px}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.flow .arrow{color:var(--muted)}.empty{color:var(--muted);font-style:italic;padding:16px;text-align:center}
+details{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:6px 0}
+summary{cursor:pointer}.ev{padding:4px 0;border-bottom:1px solid var(--border)}
+CSS
+)
+  cards=$(printf '%s' "$model" | jq -r '.summary as $s |
+    [{l:"활성",n:$s.active},{l:"stale",n:$s.stale},{l:"아카이브",n:$s.archived},
+     {l:"agent 생성",n:$s.agent_created},{l:"user 생성",n:$s.user_created},
+     {l:"pinned",n:$s.pinned},{l:"대기 제안",n:$s.proposals_pending},{l:"리뷰 큐",n:$s.review_queue}]
+    | map("<div class=\"card\"><div class=\"n\">\(.n)</div><div class=\"l\">\(.l)</div></div>")|join("")')
+  thresholds_rows=$(printf '%s' "$model" | jq -r '.thresholds as $t |
+    [{k:"세션 도구 최소",v:"\($t.min_tools)회",e:"GROWING_SKILLS_MIN_TOOLS"},
+     {k:"리뷰어 게이트",v:"\($t.reviewer_gate_hours)h",e:"FORCE=1로 우회"},
+     {k:"stale 전이",v:"유휴 \($t.stale_days)일",e:"curator-pass.sh"},
+     {k:"아카이브 전이",v:"유휴 \($t.archive_days)일",e:"curator-pass.sh"},
+     {k:"제안 폐기",v:"\($t.proposal_discard_days)일",e:".discarded 14일 후 정리"},
+     {k:"우산 통합",v:"agent ≥ \($t.consolidate_min)개",e:"GROWING_SKILLS_CONSOLIDATE_MIN"},
+     {k:"백업 보관",v:"\($t.backups_retained)개",e:"rollback"},
+     {k:"승격 예산 경고",v:"\($t.promote_budget_warn)개",e:"agent 스킬 수"}]
+    | map("<tr><td>\(.k)</td><td>\(.v)</td><td class=\"sub\">\(.e)</td></tr>")|join("")')
+  gen=$(printf '%s' "$model" | jq -r '.generated_at')
+  paused_badge=$(printf '%s' "$model" | jq -r 'if .summary.paused then "<span class=\"badge archived\">일시정지</span>" else "" end')
+  cat <<HTML
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Growing Skills Dashboard</title><style>$css</style></head>
+<body><div class="wrap">
+<h1>🌱 Growing Skills Dashboard $paused_badge</h1><div class="sub">생성: $gen</div>
+<h2>요약</h2><div class="grid">$cards</div>
+<!-- W2_PIPELINE --><!-- W3_HEATMAP --><!-- W4_BARS --><!-- W5_TABLE --><!-- W6_AGING --><!-- W7_FEED --><!-- W9_PROVENANCE -->
+<h2>판정 기준</h2><table><thead><tr><th>규칙</th><th>값</th><th>비고</th></tr></thead><tbody>$thresholds_rows</tbody></table>
+</div></body></html>
+HTML
+}
+
 MODE="${1:-html}"
 case "$MODE" in
   --json) build_model ;;
-  --render-stdin|--serve|--open|html|"") echo "렌더는 Task 9에서 구현됩니다" >&2; exit 0 ;;
+  --render-stdin) render_html ;;
+  --serve)
+    mkdir -p "$OUT_DIR"; build_model | render_html > "$OUT_HTML"; echo "생성됨: $OUT_HTML"
+    if command -v python3 >/dev/null 2>&1; then ( cd "$OUT_DIR" && python3 -m http.server 8777 ) || true
+    else echo "python3 없음 — 직접 여세요: $OUT_HTML"; fi ;;
+  --open)
+    mkdir -p "$OUT_DIR"; build_model | render_html > "$OUT_HTML"; echo "생성됨: $OUT_HTML"
+    if command -v open >/dev/null 2>&1; then open "$OUT_HTML"
+    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$OUT_HTML"
+    else echo "브라우저로 직접 여세요: $OUT_HTML"; fi ;;
+  html|"") mkdir -p "$OUT_DIR"; build_model | render_html > "$OUT_HTML"; echo "생성됨: $OUT_HTML" ;;
   *) echo "사용법: dashboard.sh [--json|--render-stdin|--serve|--open]" >&2; exit 2 ;;
 esac
