@@ -93,4 +93,17 @@ assert_contains "T5 palette"    "$HTML" "--series-output-token"
 assert_contains "T5 threshold"  "$HTML" "90"
 assert_eq "T5 no raw subst" "0" "$(printf '%s' "$HTML" | grep -cE '\{\{|__[A-Z_]+__')"
 
+# T6: 파이프라인 + 표 + 노화
+new_env
+mk_skill "$SK" alpha agent; mk_skill "$SK" beta user
+jq -n --arg d40 "$(iso_days_ago 40)" --arg d2 "$(iso_days_ago 2)" '{skills:{
+  alpha:{use:7,created_by:"agent",state:"active",pinned:false,first_seen:$d40,last_activity_at:$d40},
+  beta:{use:2,created_by:"user",state:"active",pinned:false,first_seen:$d2,last_activity_at:$d2}
+},compacted_at:null}' > "$SK/.usage.json"
+HTML=$(runjson | render)
+assert_contains "T6 pipeline" "$HTML" "아카이브"
+assert_contains "T6 table"    "$HTML" "alpha"
+assert_contains "T6 sort js"  "$HTML" "sortTable"
+assert_contains "T6 aging"    "$HTML" "삭제 위험"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

@@ -199,6 +199,23 @@ CSS
      {k:"백업 보관",v:"\($t.backups_retained)개",e:"rollback"},
      {k:"승격 예산 경고",v:"\($t.promote_budget_warn)개",e:"agent 스킬 수"}]
     | map("<tr><td>\(.k)</td><td>\(.v)</td><td class=\"sub\">\(.e)</td></tr>")|join("")')
+  local pipeline rows aging
+  pipeline=$(printf '%s' "$model" | jq -r '.pipeline as $p |
+    [{l:"리뷰 큐",n:$p.queue},{l:"제안",n:$p.proposals},{l:"활성",n:$p.active},{l:"stale",n:$p.stale},{l:"아카이브",n:$p.archived}]
+    | map("<span class=\"pill\"><b>\(.n)</b> \(.l)</span>")|join("<span class=\"arrow\">→</span>")')
+  rows=$(printf '%s' "$model" | jq -r '.skills | sort_by(-.use) | map(
+    "<tr><td>\(.name|@html)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
+    + "<td>\(.created_by)</td><td>\(.use)</td><td>\(.idle_days // "—")</td>"
+    + "<td>\(if .managed and .days_to_stale!=null then (.days_to_stale|tostring) else "—" end)</td>"
+    + "<td>\(if .pinned then "📌" else "" end)</td></tr>")|join("")')
+  aging=$(printf '%s' "$model" | jq -r '
+    (.skills | map(select(.managed and .idle_days!=null)) | sort_by(-.idle_days)) as $a
+    | if ($a|length)==0 then "<div class=\"empty\">관리 대상 노화 데이터 없음</div>"
+      else ($a | map((if .idle_days>90 then 100 else (.idle_days/90*100) end) as $w
+        | (if .idle_days>=90 then "var(--danger)" elif .idle_days>=30 then "var(--warn)" else "var(--accent)" end) as $c
+        | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name|@html) · 유휴 \(.idle_days)일</div>"
+        + "<div style=\"background:var(--surface2);border-radius:4px;height:10px\">"
+        + "<div style=\"width:\($w)%;height:10px;border-radius:4px;background:\($c)\"></div></div></div>")|join("")) end')
   gen=$(printf '%s' "$model" | jq -r '.generated_at')
   paused_badge=$(printf '%s' "$model" | jq -r 'if .summary.paused then "<span class=\"badge archived\">일시정지</span>" else "" end')
   cat <<HTML
@@ -208,9 +225,21 @@ CSS
 <body><div class="wrap">
 <h1>🌱 Growing Skills Dashboard $paused_badge</h1><div class="sub">생성: $gen</div>
 <h2>요약</h2><div class="grid">$cards</div>
-<!-- W2_PIPELINE --><!-- W3_HEATMAP --><!-- W4_BARS --><!-- W5_TABLE --><!-- W6_AGING --><!-- W7_FEED --><!-- W9_PROVENANCE -->
+<h2>라이프사이클 파이프라인</h2><div class="flow">$pipeline</div>
+<!-- W3_HEATMAP --><!-- W4_BARS -->
+<h2>스킬 목록 / 성장</h2><table id="skills"><thead><tr><th onclick="sortTable(0)">이름</th><th onclick="sortTable(1)">상태</th><th onclick="sortTable(2)">생성</th><th onclick="sortTable(3)">use</th><th onclick="sortTable(4)">유휴(일)</th><th onclick="sortTable(5)">stale까지</th><th>pin</th></tr></thead><tbody>$rows</tbody></table>
+<h2>삭제 위험 / 노화</h2>$aging
+<!-- W7_FEED --><!-- W9_PROVENANCE -->
 <h2>판정 기준</h2><table><thead><tr><th>규칙</th><th>값</th><th>비고</th></tr></thead><tbody>$thresholds_rows</tbody></table>
-</div></body></html>
+</div>
+<script>
+function sortTable(c){var t=document.getElementById('skills'),b=t.tBodies[0],r=[].slice.call(b.rows);
+var asc=t.getAttribute('data-c')==c&&t.getAttribute('data-d')!='1';
+r.sort(function(x,y){var a=x.cells[c].innerText,z=y.cells[c].innerText;var na=parseFloat(a),nz=parseFloat(z);
+if(!isNaN(na)&&!isNaN(nz)){a=na;z=nz;}return (a>z?1:a<z?-1:0)*(asc?1:-1);});
+r.forEach(function(x){b.appendChild(x);});t.setAttribute('data-c',c);t.setAttribute('data-d',asc?'1':'0');}
+</script>
+</body></html>
 HTML
 }
 
