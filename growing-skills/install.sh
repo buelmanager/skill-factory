@@ -63,6 +63,8 @@ cp "$PKG_DIR/hooks/session-start-curator.sh" "$CLAUDE_DIR/hooks/session-start-cu
 chmod +x "$CLAUDE_DIR/hooks/session-start-curator.sh"
 mkdir -p "$CLAUDE_DIR/skills/curator"
 cp "$PKG_DIR/skill/SKILL.md" "$CLAUDE_DIR/skills/curator/SKILL.md"
+mkdir -p "$CLAUDE_DIR/skills/sf-dashboard"
+cp "$PKG_DIR/skill/sf-dashboard/SKILL.md" "$CLAUDE_DIR/skills/sf-dashboard/SKILL.md"
 
 ALREADY_SS=$(jq '[.hooks.SessionStart[]? | select((.hooks // []) | any(.command // "" | contains("session-start-curator.sh")))] | length' "$SETTINGS")
 if [ "$ALREADY_SS" -eq 0 ]; then

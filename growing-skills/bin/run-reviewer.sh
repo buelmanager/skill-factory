@@ -13,6 +13,8 @@ STATE="$SKILLS_ROOT/.reviewer_state"
 LOCK="$SKILLS_ROOT/.reviewer.lock"
 REPORTS="$SKILLS_ROOT/.review-reports"
 NOW=$(date +%s)
+LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$LIB_DIR/lifecycle-log.sh" ]; then . "$LIB_DIR/lifecycle-log.sh"; else lifecycle_log() { :; }; fi
 
 command -v jq >/dev/null 2>&1 || exit 0
 command -v claude >/dev/null 2>&1 || exit 0
@@ -41,7 +43,8 @@ printf '{"last_run_at": %s}\n' "$NOW" > "$STATE"   # write-ahead
 
 # 배치: 오래된 것부터 200KB까지. 남는 큐는 다음 배치로.
 BATCH=$(mktemp); PICKED=$(mktemp)
-trap 'rm -f "$LOCK" "$BATCH" "$PICKED"' EXIT
+LC_STAMP=$(mktemp)
+trap 'rm -f "$LOCK" "$BATCH" "$PICKED" "$LC_STAMP"' EXIT
 TOTAL=0
 for f in $(ls "$QUEUE"/*.md | sort); do
   SZ=$(wc -c < "$f" | tr -d ' ')
@@ -69,6 +72,15 @@ if cat "$BATCH" | env -u ANTHROPIC_API_KEY GROWING_SKILLS_BG=1 \
     --disallowedTools "Bash" \
     > "$REPORT" 2>&1; then
   while IFS= read -r f; do mv "$f" "$QUEUE/done/" 2>/dev/null; done < "$PICKED"
+  # 신규 제안 → proposed 이벤트 (rationale·source_session 사용)
+  find "$PROPOSALS" -mindepth 2 -maxdepth 2 -name SKILL.md -newer "$LC_STAMP" \
+       ! -path '*/.discarded/*' 2>/dev/null | while IFS= read -r p; do
+    pn=$(basename "$(dirname "$p")")
+    rat=$(sed -n 's/^rationale:[[:space:]]*//p' "$p" | head -1 | tr -d '"'\''')
+    [ -n "$rat" ] || rat="리뷰어 배치에서 재사용 가능한 절차로 추출"
+    ss=$(sed -n 's/^source_session:[[:space:]]*//p' "$p" | head -1)
+    lifecycle_log "proposed" "$pn" "$rat" "$(jq -nc --arg s "$ss" '{source_session:$s}')"
+  done
 else
   printf '\n(리뷰어 실행 실패 — 큐 보존, 다음 배치에서 재시도)\n' >> "$REPORT"
 fi

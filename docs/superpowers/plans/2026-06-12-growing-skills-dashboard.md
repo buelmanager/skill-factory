@@ -105,11 +105,13 @@ Expected: FAIL — `lifecycle-log.sh: No such file` (source 실패).
 # 사용: lifecycle_log <event> <skill> <reason> [json_metadata]
 # 비차단: jq 없거나 쓰기 실패해도 호출자를 멈추지 않음(항상 0 반환).
 lifecycle_log() {
-  local ev="${1:-}" sk="${2:-}" reason="${3:-}" meta="${4:-{}}"
+  local _empty_meta='{}'
+  local ev="${1:-}" sk="${2:-}" reason="${3:-}" meta="${4:-$_empty_meta}"
   [ -n "$ev" ] || return 0
   local root="${GROWING_SKILLS_ROOT:-$HOME/.claude/skills}"
   local f="$root/.lifecycle-events.jsonl"
   command -v jq >/dev/null 2>&1 || return 0
+  printf '%s' "$meta" | jq -e . >/dev/null 2>&1 || meta="$_empty_meta"
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq -nc --arg ts "$ts" --arg ev "$ev" --arg sk "$sk" --arg r "$reason" --argjson m "$meta" \
     '{ts:$ts,event:$ev,skill:$sk,reason:$r,metadata:$m}' >> "$f" 2>/dev/null || true
@@ -197,10 +199,10 @@ if [ -f "$LIB_DIR/lifecycle-log.sh" ]; then . "$LIB_DIR/lifecycle-log.sh"; else 
       lifecycle_log "stale" "$s" "${IDLE_DAYS}일 미사용" "{\"idle_days\":$IDLE_DAYS}"
 ```
 
-(d) 제안 폐기 — `[ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; touch "$PROPOSALS/.discarded/$PNAME"; }` (약 117행) **다음 줄**에 추가:
+(d) 제안 폐기 — mv 그룹 안에 emit을 묶어 **mv 성공 시에만** 기록(유령 이벤트 방지). 기존 줄을 다음으로 교체:
 
 ```bash
-    [ "$DRY" -eq 0 ] && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'
+    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME" && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'; touch "$PROPOSALS/.discarded/$PNAME"; }
 ```
 
 (e) 우산 흡수 — `usage_write '.skills[$n] = ((.skills[$n] // {}) + {state:"archived", absorbed_into:$i})' --arg n "$FROM" --arg i "$INTO"` (약 181행) **다음 줄**에 추가:
@@ -569,6 +571,8 @@ build_model() {
         skills:$skills, events_by_day:[], lifecycle:[] }'
 }
 ```
+
+> **구현 보강(필수):** 위 jq는 `.archive/`에만 존재하는 스킬(usage·라이브 디렉토리 모두 없음)을 누락한다. 머지 직후 `$arch_extra` 단계를 추가해, `$merged`에 없는 archived 이름을 `{state:"archived", ...}`로 보강한 뒤 상태 오버라이드 패스를 돈다(이름으로 dedup). Task 7은 `... as $skills` 이후만 교체하므로 이 보강은 유지된다.
 
 - [ ] **Step 4: 통과 확인** — `bash tests/test-dashboard.sh` → T1·T2 PASS.
 
@@ -947,7 +951,7 @@ assert_contains "T6 aging"    "$HTML" "삭제 위험"
     [{l:"리뷰 큐",n:$p.queue},{l:"제안",n:$p.proposals},{l:"활성",n:$p.active},{l:"stale",n:$p.stale},{l:"아카이브",n:$p.archived}]
     | map("<span class=\"pill\"><b>\(.n)</b> \(.l)</span>")|join("<span class=\"arrow\">→</span>")')
   rows=$(printf '%s' "$model" | jq -r '.skills | sort_by(-.use) | map(
-    "<tr><td>\(.name)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
+    "<tr><td>\(.name|@html)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
     + "<td>\(.created_by)</td><td>\(.use)</td><td>\(.idle_days // "—")</td>"
     + "<td>\(if .managed and .days_to_stale!=null then (.days_to_stale|tostring) else "—" end)</td>"
     + "<td>\(if .pinned then "📌" else "" end)</td></tr>")|join("")')
@@ -956,7 +960,7 @@ assert_contains "T6 aging"    "$HTML" "삭제 위험"
     | if ($a|length)==0 then "<div class=\"empty\">관리 대상 노화 데이터 없음</div>"
       else ($a | map((if .idle_days>90 then 100 else (.idle_days/90*100) end) as $w
         | (if .idle_days>=90 then "var(--danger)" elif .idle_days>=30 then "var(--warn)" else "var(--accent)" end) as $c
-        | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name) · 유휴 \(.idle_days)일</div>"
+        | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name|@html) · 유휴 \(.idle_days)일</div>"
         + "<div style=\"background:var(--surface2);border-radius:4px;height:10px\">"
         + "<div style=\"width:\($w)%;height:10px;border-radius:4px;background:\($c)\"></div></div></div>")|join("")) end')
 ```
@@ -1054,8 +1058,8 @@ build_heatmap_svg() {  # $1 = model json
       else "<div class=\"bars\">" + ($d | map("<div class=\"b\" style=\"height:\((.count/$mx*100)|floor)%\" title=\"\(.date): \(.count)\"></div>")|join("")) + "</div>" end')
   feed=$(printf '%s' "$model" | jq -r 'if (.lifecycle|length)==0 then "<div class=\"empty\">라이프사이클 기록 없음</div>"
     else (.lifecycle[0:60] | map(
-      "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event==\"archived\" or .event==\"discarded\" then \"archived\" elif .event==\"stale\" then \"stale\" else \"active\" end)\">\(.event)</span></td>"
-      + "<td>\(.skill)</td><td class=\"sub\">\(.reason)</td></tr>")|join(""))
+      "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event==\"archived\" or .event==\"discarded\" then \"archived\" elif .event==\"stale\" then \"stale\" else \"active\" end)\">\(.event)</span></td>" # 주의: \(...) 보간 안에서는 jq 문법상 plain 따옴표 사용 — 실제 코드는 "archived"/"stale"/"active" (이스케이프 X)
+      + "<td>\(.skill|@html)</td><td class=\"sub\">\(.reason|@html)</td></tr>")|join(""))
       | "<table><thead><tr><th>날짜</th><th>이벤트</th><th>스킬</th><th>이유</th></tr></thead><tbody>" + . + "</tbody></table>" end')
   # W9 일대기: 스킬별 이벤트 그룹 + use/first_seen
   provenance=$(printf '%s' "$model" | jq -r '
@@ -1063,8 +1067,8 @@ build_heatmap_svg() {  # $1 = model json
     | (.lifecycle | group_by(.skill)) as $g
     | if ($g|length)==0 then "<div class=\"empty\">이유 이벤트가 아직 없습니다 (시스템이 돌면 채워집니다)</div>"
       else ($g | map(. as $evs | $evs[0].skill as $nm
-        | "<details><summary><b>\($nm)</b> <span class=\"sub\">use \($meta[$nm].use // 0) · 상태 \($meta[$nm].state // "?")</span></summary>"
-        + ($evs | sort_by(.date) | map("<div class=\"ev\"><span class=\"sub\">\(.date)</span> · <b>\(.event)</b> — \(.reason)</div>")|join(""))
+        | "<details><summary><b>\($nm|@html)</b> <span class=\"sub\">use \($meta[$nm].use // 0) · 상태 \($meta[$nm].state // "?")</span></summary>"
+        + ($evs | sort_by(.date) | map("<div class=\"ev\"><span class=\"sub\">\(.date)</span> · <b>\(.event)</b> — \(.reason|@html)</div>")|join(""))
         + "</details>")|join("")) end')
 ```
 

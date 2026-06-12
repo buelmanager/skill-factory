@@ -34,6 +34,7 @@
 - `name`: 영문 소문자·숫자·하이픈만, 동사형(-ing) 선호 (예: `fixing-supabase-migrations`)
 - `description`: "Use when..."으로 시작, **발동 조건만** 기술 (워크플로 요약 금지)
 - frontmatter에 `created_by: agent`, `proposed_at: <오늘 날짜>`, `source_session: <세션 ID>` 필수
+- `rationale: <왜 이 스킬을 제안하는가 — 어떤 반복 패턴 때문인지 한 문장>` 필수
 - 본문 500단어 이내, 검색 키워드(에러 메시지·증상·도구명)를 본문에 배치
 
 ## 위키 raw 노트 형식 (dev 도메인만)

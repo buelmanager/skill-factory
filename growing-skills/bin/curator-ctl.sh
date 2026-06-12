@@ -20,6 +20,8 @@ state_set() {
   local tmp; tmp=$(mktemp)
   jq "$@" "$prog" "$STATE" > "$tmp" && jq -e . "$tmp" >/dev/null && mv "$tmp" "$STATE"
 }
+LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$LIB_DIR/lifecycle-log.sh" ]; then . "$LIB_DIR/lifecycle-log.sh"; else lifecycle_log() { :; }; fi
 
 CMD="${1:-status}"
 case "$CMD" in
@@ -32,12 +34,14 @@ case "$CMD" in
     [ "$ACTIVE" -ge 15 ] && echo "WARN: 승격된 agent 스킬이 예산(15)에 도달 — 큐레이터 통합 권장"
     mv "$SRC" "$DST"
     usage_set '.skills[$n] = ((.skills[$n] // {use:0}) + {created_by:"agent", first_seen:$now, state:"active", pinned:false})' --arg n "$NAME" --arg now "$NOW"
+    lifecycle_log "promoted" "$NAME" "사용자 승격" '{}'
     echo "승격 완료: $NAME (다음 세션부터 로드됨)"
     ;;
   pin|unpin)
     NAME="${2:?스킬명 필요}"
     VAL=$([ "$CMD" = "pin" ] && echo true || echo false)
     usage_set '.skills[$n] = ((.skills[$n] // {}) + {pinned: ($v == "true")})' --arg n "$NAME" --arg v "$VAL"
+    lifecycle_log "$CMD" "$NAME" "사용자 $([ "$CMD" = pin ] && echo 고정 || echo 고정해제)" '{}'
     echo "$CMD: $NAME"
     ;;
   pause|resume)
@@ -52,12 +56,14 @@ case "$CMD" in
     [ -e "$DST" ] && { echo "ERROR: 동명 스킬 존재"; exit 1; }
     mv "$SRC" "$DST"
     usage_set '.skills[$n] = ((.skills[$n] // {}) + {state:"active", last_activity_at:$now})' --arg n "$NAME" --arg now "$NOW"
+    lifecycle_log "restored" "$NAME" "아카이브에서 복원" '{}'
     echo "복원 완료: $NAME"
     ;;
   adopt)
     NAME="${2:?스킬명 필요}"
     [ -f "$SKILLS_ROOT/$NAME/SKILL.md" ] || { echo "ERROR: 스킬 없음: $NAME"; exit 1; }
     usage_set '.skills[$n] = ((.skills[$n] // {use:0, created_by:"user", state:"active", pinned:false}) + {curated: true, first_seen: (.skills[$n].first_seen // $now)})' --arg n "$NAME" --arg now "$NOW"
+    lifecycle_log "adopted" "$NAME" "수명 관리 옵트인" '{}'
     echo "수명 관리 옵트인: $NAME (통합 대상은 아님 — 30/90일 전이만 적용)"
     ;;
   rollback)

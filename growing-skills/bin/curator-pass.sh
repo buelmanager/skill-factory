@@ -27,6 +27,8 @@ usage_write() { # 검증된 사이드카 쓰기: jq 프로그램 + 추가 인자
   local tmp; tmp=$(mktemp)
   jq "$@" "$prog" "$USAGE" > "$tmp" && jq -e . "$tmp" >/dev/null 2>&1 && mv "$tmp" "$USAGE" || rm -f "$tmp"
 }
+LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$LIB_DIR/lifecycle-log.sh" ]; then . "$LIB_DIR/lifecycle-log.sh"; else lifecycle_log() { :; }; fi
 
 # 락 (noclobber 원자 획득, 2h stale)
 acquire_lock() { ( set -o noclobber; printf '%s\n%s\n' "$$" "$NOW" > "$LOCK" ) 2>/dev/null; }
@@ -94,11 +96,13 @@ for s in $MANAGED; do
     if [ "$DRY" -eq 0 ]; then
       mkdir -p "$ARCHIVE"; mv "$SKILLS_ROOT/$s" "$ARCHIVE/$s"
       usage_write '.skills[$n].state = "archived"' --arg n "$s"
+      lifecycle_log "archived" "$s" "${IDLE_DAYS}일 미사용" "{\"idle_days\":$IDLE_DAYS}"
     fi
   elif [ "$IDLE_DAYS" -ge 30 ] && [ "$CURSTATE" = "active" ]; then
     echo "- $s: ${IDLE_DAYS}일 미사용 → stale" >> "$REPORT"
     if [ "$DRY" -eq 0 ]; then
       usage_write '.skills[$n].state = "stale"' --arg n "$s"
+      lifecycle_log "stale" "$s" "${IDLE_DAYS}일 미사용" "{\"idle_days\":$IDLE_DAYS}"
     fi
   fi
 done
@@ -114,7 +118,7 @@ for d in "$PROPOSALS"/*/; do
   PE=$(iso_to_epoch "$PISO"); [ "$PE" -eq 0 ] && continue
   if [ $(( (NOW - PE) / 86400 )) -ge 60 ]; then
     echo "- $PNAME: 60일 초과 미승격 → 폐기" >> "$REPORT"
-    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; touch "$PROPOSALS/.discarded/$PNAME"; }
+    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME" && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'; touch "$PROPOSALS/.discarded/$PNAME"; }
   fi
 done
 [ "$DRY" -eq 0 ] && find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null
@@ -179,6 +183,8 @@ if [ "$DRY" -eq 0 ] && [ "$ACTIVE_COUNT" -ge "$CONSOLIDATE_MIN" ] && command -v 
         fi
         mkdir -p "$ARCHIVE"; mv "$SKILLS_ROOT/$FROM" "$ARCHIVE/$FROM"
         usage_write '.skills[$n] = ((.skills[$n] // {}) + {state:"archived", absorbed_into:$i})' --arg n "$FROM" --arg i "$INTO"
+        MV_REASON=$(printf '%s' "$mv_json" | jq -r '.reason // "통합"')
+        lifecycle_log "absorbed" "$FROM" "$MV_REASON" "$(jq -nc --arg i "$INTO" '{into:$i}')"
         # 참조 재작성: 이름이 안전 문자셋일 때만, BSD 단어 경계 앵커로 (부분 문자열 오염 방지)
         case "$FROM$INTO" in
           *[!a-z0-9-]*) echo "  (참조 재작성 건너뜀: 이름에 안전하지 않은 문자)" >> "$REPORT";;
