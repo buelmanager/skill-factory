@@ -22,4 +22,16 @@ assert_eq "T1 consolidate"    "8"  "$(printf '%s' "$OUT" | jq -r '.thresholds.co
 assert_eq "T1 summary.active" "0"  "$(printf '%s' "$OUT" | jq -r '.summary.active')"
 assert_eq "T1 skills empty"   "0"  "$(printf '%s' "$OUT" | jq -r '.skills | length')"
 
+# T2: 머지
+new_env
+mk_skill "$SK" only-in-dir user; mk_skill "$SK" tracked agent
+mkdir -p "$SK/.archive/old-archived"; printf -- "---\nname: old-archived\ncreated_by: agent\n---\nx\n" > "$SK/.archive/old-archived/SKILL.md"
+jq -n '{skills:{tracked:{use:5,created_by:"agent",state:"active",pinned:false,first_seen:"2026-05-01T00:00:00Z",last_activity_at:"2026-06-01T00:00:00Z"}},compacted_at:null}' > "$SK/.usage.json"
+OUT=$(runjson)
+assert_eq "T2 only-in-dir state" "active" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="only-in-dir").state')"
+assert_eq "T2 only-in-dir cb"    "user"   "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="only-in-dir").created_by')"
+assert_eq "T2 tracked use"       "5"      "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="tracked").use')"
+assert_eq "T2 archived state"    "archived" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="old-archived").state')"
+assert_eq "T2 total"             "3"      "$(printf '%s' "$OUT" | jq -r '.skills|length')"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

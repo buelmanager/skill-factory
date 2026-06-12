@@ -19,14 +19,48 @@ thresholds_json() {
     backups_retained:5, reports_retained:12, promote_budget_warn:15 }'
 }
 
-build_model() {  # Task 6~8에서 채워짐
-  jq -n --arg gen "$NOWISO" --argjson th "$(thresholds_json)" '{
-    generated_at:$gen, thresholds:$th,
-    summary:{active:0,stale:0,archived:0,agent_created:0,user_created:0,pinned:0,
-             proposals_pending:0,proposals_discarded:0,review_queue:0,
-             last_curator_run:null,last_reviewer_run:null,paused:false},
-    pipeline:{queue:0,proposals:0,active:0,stale:0,archived:0,absorbed:0},
-    skills:[], events_by_day:[], lifecycle:[] }'
+dir_skills_json() {
+  { for d in "$SKILLS_ROOT"/*/; do
+      [ -f "${d}SKILL.md" ] || continue
+      name=$(basename "$d"); case "$name" in .*) continue;; esac
+      cb=$(sed -n 's/^created_by:[[:space:]]*//p' "${d}SKILL.md" | head -1 | tr -d '"'\''')
+      [ -n "$cb" ] || cb="user"
+      printf '%s\t%s\n' "$name" "$cb"
+    done; } | jq -R -s 'split("\n")|map(select(length>0)|split("\t")|{name:.[0],created_by:.[1]})'
+}
+archived_json() {
+  { for d in "$SKILLS_ROOT"/.archive/*/; do [ -d "$d" ] || continue; basename "$d"; done; } \
+    | jq -R -s 'split("\n")|map(select(length>0))'
+}
+
+build_model() {
+  local usage_skills dir_skills archived
+  usage_skills=$([ -f "$USAGE" ] && jq '.skills // {}' "$USAGE" || echo '{}')
+  dir_skills=$(dir_skills_json); archived=$(archived_json)
+  jq -n --arg gen "$NOWISO" --argjson th "$(thresholds_json)" \
+    --argjson usage "$usage_skills" --argjson dirs "$dir_skills" --argjson archived "$archived" '
+    ($usage | to_entries | map({name:.key} + .value)) as $base
+    | ($base | map(.name)) as $known
+    | ($dirs | map(select(.name as $n | ($known|index($n))|not)
+        | {name:.name, created_by:.created_by, use:0, state:"active",
+           pinned:false, first_seen:null, last_activity_at:null})) as $extra
+    | ($base + $extra) as $merged
+    | ($merged | map(.name)) as $all_known
+    | ($archived | map(select(. as $n | ($all_known|index($n))|not)
+        | {name:., created_by:"user", use:0, state:"archived",
+           pinned:false, first_seen:null, last_activity_at:null})) as $arch_extra
+    | ($merged + $arch_extra)
+    | map(if (.name as $n | $archived|index($n)) then .state="archived" else . end)
+    | map({ name, state:(.state // "active"), created_by:(.created_by // "user"),
+            use:(.use // 0), first_seen:(.first_seen // null),
+            last_activity_at:(.last_activity_at // null), pinned:(.pinned // false),
+            absorbed_into:(.absorbed_into // null), curated:(.curated // false) }) as $skills
+    | { generated_at:$gen, thresholds:$th,
+        summary:{active:0,stale:0,archived:0,agent_created:0,user_created:0,pinned:0,
+                 proposals_pending:0,proposals_discarded:0,review_queue:0,
+                 last_curator_run:null,last_reviewer_run:null,paused:false},
+        pipeline:{queue:0,proposals:0,active:0,stale:0,archived:0,absorbed:0},
+        skills:$skills, events_by_day:[], lifecycle:[] }'
 }
 
 MODE="${1:-html}"
