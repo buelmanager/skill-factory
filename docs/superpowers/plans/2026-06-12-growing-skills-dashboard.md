@@ -1058,7 +1058,7 @@ build_heatmap_svg() {  # $1 = model json
       else "<div class=\"bars\">" + ($d | map("<div class=\"b\" style=\"height:\((.count/$mx*100)|floor)%\" title=\"\(.date): \(.count)\"></div>")|join("")) + "</div>" end')
   feed=$(printf '%s' "$model" | jq -r 'if (.lifecycle|length)==0 then "<div class=\"empty\">라이프사이클 기록 없음</div>"
     else (.lifecycle[0:60] | map(
-      "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event==\"archived\" or .event==\"discarded\" then \"archived\" elif .event==\"stale\" then \"stale\" else \"active\" end)\">\(.event)</span></td>"
+      "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event==\"archived\" or .event==\"discarded\" then \"archived\" elif .event==\"stale\" then \"stale\" else \"active\" end)\">\(.event)</span></td>" # 주의: \(...) 보간 안에서는 jq 문법상 plain 따옴표 사용 — 실제 코드는 "archived"/"stale"/"active" (이스케이프 X)
       + "<td>\(.skill|@html)</td><td class=\"sub\">\(.reason|@html)</td></tr>")|join(""))
       | "<table><thead><tr><th>날짜</th><th>이벤트</th><th>스킬</th><th>이유</th></tr></thead><tbody>" + . + "</tbody></table>" end')
   # W9 일대기: 스킬별 이벤트 그룹 + use/first_seen
