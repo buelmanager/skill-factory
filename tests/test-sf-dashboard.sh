@@ -1,8 +1,8 @@
 #!/bin/bash
-# dashboard.sh 테스트. 실행: bash tests/test-dashboard.sh
+# sf-dashboard.sh 테스트. 실행: bash tests/test-sf-dashboard.sh
 set -u
 PKG="$(cd "$(dirname "$0")/.." && pwd)/growing-skills"
-RUN="$PKG/bin/dashboard.sh"
+RUN="$PKG/bin/sf-dashboard.sh"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "PASS: $1"; else FAIL=$((FAIL+1)); echo "FAIL: $1 (exp [$2] got [$3])"; fi; }
 assert_contains() { if printf '%s' "$2" | grep -qF -- "$3"; then PASS=$((PASS+1)); echo "PASS: $1"; else FAIL=$((FAIL+1)); echo "FAIL: $1 (missing [$3])"; fi; }

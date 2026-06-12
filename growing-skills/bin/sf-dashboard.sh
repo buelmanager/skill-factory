@@ -4,7 +4,7 @@
 set -u
 SKILLS_ROOT="${GROWING_SKILLS_ROOT:-$HOME/.claude/skills}"
 PROPOSALS="${GROWING_SKILLS_PROPOSALS_DIR:-$HOME/.claude/skill-proposals}"
-OUT_DIR="$SKILLS_ROOT/.dashboard"; OUT_HTML="$OUT_DIR/index.html"
+OUT_DIR="$SKILLS_ROOT/.sf-dashboard"; OUT_HTML="$OUT_DIR/index.html"
 USAGE="$SKILLS_ROOT/.usage.json"; EVENTS="$SKILLS_ROOT/.usage-events.jsonl"
 LIFELOG="$SKILLS_ROOT/.lifecycle-events.jsonl"
 NOW=$(date +%s); NOWISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -225,8 +225,8 @@ CSS
     [{l:"리뷰 큐",n:$p.queue},{l:"제안",n:$p.proposals},{l:"활성",n:$p.active},{l:"stale",n:$p.stale},{l:"아카이브",n:$p.archived}]
     | map("<span class=\"pill\"><b>\(.n)</b> \(.l)</span>")|join("<span class=\"arrow\">→</span>")')
   rows=$(printf '%s' "$model" | jq -r '.skills | sort_by(-.use) | map(
-    "<tr><td>\(.name|@html)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
-    + "<td>\(.created_by)</td><td>\(.use)</td><td>\(.idle_days // "—")</td>"
+    "<tr><td>\(.name|@html)</td><td><span class=\"badge \(.state|@html)\">\(.state|@html)</span></td>"
+    + "<td>\(.created_by|@html)</td><td>\(.use)</td><td>\(.idle_days // "—")</td>"
     + "<td>\(if .managed and .days_to_stale!=null then (.days_to_stale|tostring) else "—" end)</td>"
     + "<td>\(if .pinned then "📌" else "" end)</td></tr>")|join("")')
   aging=$(printf '%s' "$model" | jq -r '
@@ -298,5 +298,5 @@ case "$MODE" in
     elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$OUT_HTML"
     else echo "브라우저로 직접 여세요: $OUT_HTML"; fi ;;
   html|"") mkdir -p "$OUT_DIR"; build_model | render_html > "$OUT_HTML"; echo "생성됨: $OUT_HTML" ;;
-  *) echo "사용법: dashboard.sh [--json|--render-stdin|--serve|--open]" >&2; exit 2 ;;
+  *) echo "사용법: sf-dashboard.sh [--json|--render-stdin|--serve|--open]" >&2; exit 2 ;;
 esac
