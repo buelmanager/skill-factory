@@ -106,4 +106,21 @@ assert_contains "T6 table"    "$HTML" "alpha"
 assert_contains "T6 sort js"  "$HTML" "sortTable"
 assert_contains "T6 aging"    "$HTML" "삭제 위험"
 
+# T7: 히트맵 + 막대 + 이유피드 + 일대기
+new_env
+printf '%s\n' \
+  '{"ts":"2026-06-10T10:00:00Z","skill":"a","event":"use","session":"s"}' \
+  '{"ts":"2026-06-11T09:00:00Z","skill":"a","event":"use","session":"s"}' > "$SK/.usage-events.jsonl"
+printf '%s\n' '{"ts":"2026-06-11T14:00:00Z","event":"promoted","skill":"alpha","reason":"사용자 승격","metadata":{}}' > "$SK/.lifecycle-events.jsonl"
+mk_skill "$SK" alpha agent
+jq -n '{skills:{alpha:{use:7,created_by:"agent",state:"active",pinned:false,first_seen:"2026-06-01T00:00:00Z",last_activity_at:"2026-06-10T00:00:00Z"}},compacted_at:null}' > "$SK/.usage.json"
+HTML=$(runjson | render)
+assert_contains "T7 svg"        "$HTML" "<svg"
+assert_contains "T7 rect"       "$HTML" "<rect"
+assert_contains "T7 bars"       "$HTML" "class=\"bars\""
+assert_contains "T7 heatmap h"  "$HTML" "활동 히트맵"
+assert_contains "T7 feed reason" "$HTML" "사용자 승격"
+assert_contains "T7 provenance" "$HTML" "스킬 일대기"
+assert_contains "T7 prov skill" "$HTML" "alpha"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

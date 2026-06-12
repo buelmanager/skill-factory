@@ -151,6 +151,27 @@ build_model() {
         skills:$skills2, events_by_day:$events, lifecycle:$lifecycle }'
 }
 
+build_heatmap_svg() {  # $1 = model json
+  local model="$1" cell=12 gap=3 max counts
+  max=$(printf '%s' "$model" | jq -r '[.events_by_day[].count] | max // 1')
+  [ "$max" -gt 0 ] 2>/dev/null || max=1
+  counts=$(printf '%s' "$model" | jq -r '.events_by_day[] | "\(.date) \(.count)"')
+  get_count() { printf '%s\n' "$counts" | awk -v d="$1" '$1==d{print $2;f=1} END{if(!f)print 0}'; }
+  local svg_w=$(( 26*(cell+gap) )) svg_h=$(( 7*(cell+gap) )) i d c col row x y lvl
+  printf '<svg width="%d" height="%d" role="img">' "$svg_w" "$svg_h"
+  for i in $(seq 181 -1 0); do
+    d=$(date -u -v-"${i}"d +%Y-%m-%d); c=$(get_count "$d")
+    col=$(( (181 - i) / 7 )); row=$(date -u -v-"${i}"d +%w)
+    x=$(( col*(cell+gap) )); y=$(( row*(cell+gap) ))
+    if [ "$c" -le 0 ] 2>/dev/null; then lvl=0
+    elif [ "$c" -ge "$max" ] 2>/dev/null; then lvl=4
+    else lvl=$(( c*4/max )); [ "$lvl" -lt 1 ] && lvl=1; fi
+    printf '<rect x="%d" y="%d" width="%d" height="%d" rx="2" fill="var(--hm%d)"><title>%s: %s</title></rect>' \
+      "$x" "$y" "$cell" "$cell" "$lvl" "$d" "$c"
+  done
+  printf '</svg>'
+}
+
 render_html() {
   local model; model=$(cat)
   local css cards thresholds_rows gen paused_badge
@@ -199,7 +220,7 @@ CSS
      {k:"백업 보관",v:"\($t.backups_retained)개",e:"rollback"},
      {k:"승격 예산 경고",v:"\($t.promote_budget_warn)개",e:"agent 스킬 수"}]
     | map("<tr><td>\(.k)</td><td>\(.v)</td><td class=\"sub\">\(.e)</td></tr>")|join("")')
-  local pipeline rows aging
+  local pipeline rows aging heatmap bars feed provenance
   pipeline=$(printf '%s' "$model" | jq -r '.pipeline as $p |
     [{l:"리뷰 큐",n:$p.queue},{l:"제안",n:$p.proposals},{l:"활성",n:$p.active},{l:"stale",n:$p.stale},{l:"아카이브",n:$p.archived}]
     | map("<span class=\"pill\"><b>\(.n)</b> \(.l)</span>")|join("<span class=\"arrow\">→</span>")')
@@ -216,6 +237,24 @@ CSS
         | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name|@html) · 유휴 \(.idle_days)일</div>"
         + "<div style=\"background:var(--surface2);border-radius:4px;height:10px\">"
         + "<div style=\"width:\($w)%;height:10px;border-radius:4px;background:\($c)\"></div></div></div>")|join("")) end')
+  heatmap=$(build_heatmap_svg "$model")
+  bars=$(printf '%s' "$model" | jq -r '(.events_by_day | sort_by(.date))[-30:] as $d
+    | ($d | map(.count) | max // 1) as $mx
+    | if ($d|length)==0 then "<div class=\"empty\">활동 데이터 없음</div>"
+      else "<div class=\"bars\">" + ($d | map("<div class=\"b\" style=\"height:\((.count/$mx*100)|floor)%\" title=\"\(.date): \(.count)\"></div>")|join("")) + "</div>" end')
+  feed=$(printf '%s' "$model" | jq -r 'if (.lifecycle|length)==0 then "<div class=\"empty\">라이프사이클 기록 없음</div>"
+    else (.lifecycle[0:60] | map(
+      "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event=="archived" or .event=="discarded" then "archived" elif .event=="stale" then "stale" else "active" end)\">\(.event)</span></td>"
+      + "<td>\(.skill|@html)</td><td class=\"sub\">\(.reason|@html)</td></tr>")|join(""))
+      | "<table><thead><tr><th>날짜</th><th>이벤트</th><th>스킬</th><th>이유</th></tr></thead><tbody>" + . + "</tbody></table>" end')
+  provenance=$(printf '%s' "$model" | jq -r '
+    (.skills | map({key:.name, value:{use:.use, first_seen:.first_seen, state:.state}}) | from_entries) as $meta
+    | (.lifecycle | group_by(.skill)) as $g
+    | if ($g|length)==0 then "<div class=\"empty\">이유 이벤트가 아직 없습니다 (시스템이 돌면 채워집니다)</div>"
+      else ($g | map(. as $evs | $evs[0].skill as $nm
+        | "<details><summary><b>\($nm|@html)</b> <span class=\"sub\">use \($meta[$nm].use // 0) · 상태 \($meta[$nm].state // "?")</span></summary>"
+        + ($evs | sort_by(.date) | map("<div class=\"ev\"><span class=\"sub\">\(.date)</span> · <b>\(.event)</b> — \(.reason|@html)</div>")|join(""))
+        + "</details>")|join("")) end')
   gen=$(printf '%s' "$model" | jq -r '.generated_at')
   paused_badge=$(printf '%s' "$model" | jq -r 'if .summary.paused then "<span class=\"badge archived\">일시정지</span>" else "" end')
   cat <<HTML
@@ -226,10 +265,12 @@ CSS
 <h1>🌱 Growing Skills Dashboard $paused_badge</h1><div class="sub">생성: $gen</div>
 <h2>요약</h2><div class="grid">$cards</div>
 <h2>라이프사이클 파이프라인</h2><div class="flow">$pipeline</div>
-<!-- W3_HEATMAP --><!-- W4_BARS -->
+<h2>활동 히트맵</h2><div class="card" style="overflow-x:auto">$heatmap</div>
+<h2>일별 활동</h2>$bars
 <h2>스킬 목록 / 성장</h2><table id="skills"><thead><tr><th onclick="sortTable(0)">이름</th><th onclick="sortTable(1)">상태</th><th onclick="sortTable(2)">생성</th><th onclick="sortTable(3)">use</th><th onclick="sortTable(4)">유휴(일)</th><th onclick="sortTable(5)">stale까지</th><th>pin</th></tr></thead><tbody>$rows</tbody></table>
 <h2>삭제 위험 / 노화</h2>$aging
-<!-- W7_FEED --><!-- W9_PROVENANCE -->
+<h2>라이프사이클 / 이유 피드</h2>$feed
+<h2>스킬 일대기 (왜 태어나고·자라고·사라졌나)</h2>$provenance
 <h2>판정 기준</h2><table><thead><tr><th>규칙</th><th>값</th><th>비고</th></tr></thead><tbody>$thresholds_rows</tbody></table>
 </div>
 <script>
