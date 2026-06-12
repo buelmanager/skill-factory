@@ -118,8 +118,7 @@ for d in "$PROPOSALS"/*/; do
   PE=$(iso_to_epoch "$PISO"); [ "$PE" -eq 0 ] && continue
   if [ $(( (NOW - PE) / 86400 )) -ge 60 ]; then
     echo "- $PNAME: 60일 초과 미승격 → 폐기" >> "$REPORT"
-    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; touch "$PROPOSALS/.discarded/$PNAME"; }
-    [ "$DRY" -eq 0 ] && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'
+    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME" && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'; touch "$PROPOSALS/.discarded/$PNAME"; }
   fi
 done
 [ "$DRY" -eq 0 ] && find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null

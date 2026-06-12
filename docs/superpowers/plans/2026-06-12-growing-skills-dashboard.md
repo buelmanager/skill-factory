@@ -199,10 +199,10 @@ if [ -f "$LIB_DIR/lifecycle-log.sh" ]; then . "$LIB_DIR/lifecycle-log.sh"; else 
       lifecycle_log "stale" "$s" "${IDLE_DAYS}일 미사용" "{\"idle_days\":$IDLE_DAYS}"
 ```
 
-(d) 제안 폐기 — `[ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; touch "$PROPOSALS/.discarded/$PNAME"; }` (약 117행) **다음 줄**에 추가:
+(d) 제안 폐기 — mv 그룹 안에 emit을 묶어 **mv 성공 시에만** 기록(유령 이벤트 방지). 기존 줄을 다음으로 교체:
 
 ```bash
-    [ "$DRY" -eq 0 ] && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'
+    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME" && lifecycle_log "discarded" "$PNAME" "60일 초과 미승격" '{}'; touch "$PROPOSALS/.discarded/$PNAME"; }
 ```
 
 (e) 우산 흡수 — `usage_write '.skills[$n] = ((.skills[$n] // {}) + {state:"archived", absorbed_into:$i})' --arg n "$FROM" --arg i "$INTO"` (약 181행) **다음 줄**에 추가:

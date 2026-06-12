@@ -26,4 +26,11 @@ jq -n --arg d100 "$(iso_days_ago 100)" '{skills:{"old-c":{use:1,created_by:"agen
 GROWING_SKILLS_ROOT="$SK2" GROWING_SKILLS_HOME="$PKG" bash "$PKG/bin/curator-pass.sh" --dry-run >/dev/null 2>&1
 assert_eq "dry-run no emit" "0" "$([ -f "$SK2/.lifecycle-events.jsonl" ] && wc -l < "$SK2/.lifecycle-events.jsonl" | tr -d ' ' || echo 0)"
 
+# 제안 60일 폐기 emit
+SB5=$(mktemp -d); SK5="$SB5/skills"; PR5="$SB5/proposals"; mkdir -p "$SK5" "$PR5/stale-prop"
+printf -- "---\nname: stale-prop\nproposed_at: %s\n---\nx\n" "$(iso_days_ago 70)" > "$PR5/stale-prop/SKILL.md"
+printf '{"skills":{},"compacted_at":null}\n' > "$SK5/.usage.json"
+GROWING_SKILLS_ROOT="$SK5" GROWING_SKILLS_HOME="$PKG" GROWING_SKILLS_PROPOSALS_DIR="$PR5" bash "$PKG/bin/curator-pass.sh" >/dev/null 2>&1
+assert_eq "discard emit" "stale-prop" "$(jq -r 'select(.event=="discarded").skill' "$SK5/.lifecycle-events.jsonl" 2>/dev/null | head -1)"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
