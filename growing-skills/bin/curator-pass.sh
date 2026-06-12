@@ -22,6 +22,11 @@ DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
 command -v jq >/dev/null 2>&1 || exit 1
 
 iso_to_epoch() { date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null || echo 0; }
+usage_write() { # 검증된 사이드카 쓰기: jq 프로그램 + 추가 인자
+  local prog="$1"; shift
+  local tmp; tmp=$(mktemp)
+  jq "$@" "$prog" "$USAGE" > "$tmp" && jq -e . "$tmp" >/dev/null 2>&1 && mv "$tmp" "$USAGE" || rm -f "$tmp"
+}
 
 # 락 (noclobber 원자 획득, 2h stale)
 acquire_lock() { ( set -o noclobber; printf '%s\n%s\n' "$$" "$NOW" > "$LOCK" ) 2>/dev/null; }
@@ -44,8 +49,12 @@ REPORT="$REPORTS/$(date +%Y-%m-%d-%H%M%S).md"
 
 # write-ahead 스탬프 (dry-run 제외)
 if [ "$DRY" -eq 0 ]; then
-  [ -f "$STATE" ] || printf '{"last_run_at":0,"paused":false}\n' > "$STATE"
-  TMP=$(mktemp); jq --argjson t "$NOW" '.last_run_at = $t' "$STATE" > "$TMP" && mv "$TMP" "$STATE"
+  # 손상된 state 자가 치유 (손상 시 스탬프가 영원히 실패해 세션마다 재발화하는 캐스케이드 방지)
+  jq -e . "$STATE" >/dev/null 2>&1 || printf '{"last_run_at":0,"paused":false}\n' > "$STATE"
+  TMP=$(mktemp)
+  if ! { jq --argjson t "$NOW" '.last_run_at = $t' "$STATE" > "$TMP" && jq -e . "$TMP" >/dev/null && mv "$TMP" "$STATE"; }; then
+    echo "- 스탬프 기록 실패 — 패스 중단" >> "$REPORT"; exit 1
+  fi
 fi
 
 # 1) 컴팩션
@@ -62,7 +71,11 @@ if [ "$DRY" -eq 0 ]; then
   for s in $MANAGED; do [ -d "$SKILLS_ROOT/$s" ] && echo "$s" >> "$SNAP_LIST"; done
   echo ".usage.json" >> "$SNAP_LIST"
   [ -f "$STATE" ] && echo ".curator_state" >> "$SNAP_LIST"
-  tar -czf "$BACKUPS/$(date +%Y%m%d-%H%M%S).tar.gz" -C "$SKILLS_ROOT" -T "$SNAP_LIST" 2>/dev/null
+  if ! tar -czf "$BACKUPS/$(date +%Y%m%d-%H%M%S).tar.gz" -C "$SKILLS_ROOT" -T "$SNAP_LIST" 2>/dev/null; then
+    rm -f "$SNAP_LIST"
+    echo "- 스냅샷 실패 — 파괴적 단계를 중단합니다 (백업 없이 진행 금지)" >> "$REPORT"
+    exit 1
+  fi
   rm -f "$SNAP_LIST"
   command ls -t "$BACKUPS"/*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
 fi
@@ -80,12 +93,12 @@ for s in $MANAGED; do
     echo "- $s: ${IDLE_DAYS}일 미사용 → 아카이브" >> "$REPORT"
     if [ "$DRY" -eq 0 ]; then
       mkdir -p "$ARCHIVE"; mv "$SKILLS_ROOT/$s" "$ARCHIVE/$s"
-      TMP=$(mktemp); jq --arg n "$s" '.skills[$n].state = "archived"' "$USAGE" > "$TMP" && mv "$TMP" "$USAGE"
+      usage_write '.skills[$n].state = "archived"' --arg n "$s"
     fi
   elif [ "$IDLE_DAYS" -ge 30 ] && [ "$CURSTATE" = "active" ]; then
     echo "- $s: ${IDLE_DAYS}일 미사용 → stale" >> "$REPORT"
     if [ "$DRY" -eq 0 ]; then
-      TMP=$(mktemp); jq --arg n "$s" '.skills[$n].state = "stale"' "$USAGE" > "$TMP" && mv "$TMP" "$USAGE"
+      usage_write '.skills[$n].state = "stale"' --arg n "$s"
     fi
   fi
 done
@@ -101,10 +114,10 @@ for d in "$PROPOSALS"/*/; do
   PE=$(iso_to_epoch "$PISO"); [ "$PE" -eq 0 ] && continue
   if [ $(( (NOW - PE) / 86400 )) -ge 60 ]; then
     echo "- $PNAME: 60일 초과 미승격 → 폐기" >> "$REPORT"
-    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; }
+    [ "$DRY" -eq 0 ] && { mkdir -p "$PROPOSALS/.discarded"; mv "$d" "$PROPOSALS/.discarded/$PNAME"; touch "$PROPOSALS/.discarded/$PNAME"; }
   fi
 done
-find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null
+[ "$DRY" -eq 0 ] && find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null
 
 # 5) LLM 우산 통합 (active agent 스킬이 CONSOLIDATE_MIN 이상, dry-run 제외)
 ACTIVE_AGENT=$(jq -r '[.skills | to_entries[] | select(.value.created_by=="agent" and (.value.state // "active")=="active" and (.value.pinned // false | not))] | map(.key) | .[]' "$USAGE")
@@ -146,19 +159,35 @@ if [ "$DRY" -eq 0 ] && [ "$ACTIVE_COUNT" -ge "$CONSOLIDATE_MIN" ] && command -v 
       for u in "$STAGING"/*/; do
         [ -f "$u/SKILL.md" ] || continue
         UNAME=$(basename "$u")
-        [ -e "$SKILLS_ROOT/$UNAME" ] || mv "$u" "$SKILLS_ROOT/$UNAME"
-        TMP=$(mktemp); jq --arg n "$UNAME" --arg now "$NOWISO" '.skills[$n] = ((.skills[$n] // {use:0}) + {created_by:"agent", first_seen:$now, state:"active", pinned:false})' "$USAGE" > "$TMP" && mv "$TMP" "$USAGE"
+        if [ -e "$SKILLS_ROOT/$UNAME" ]; then
+          # 동명 스킬 존재 — 설치도 사이드카 등록도 하지 않는다 (사용자 스킬 재라벨링 방지)
+          echo "- 우산 이름 충돌로 설치 건너뜀: $UNAME (기존 스킬 보호)" >> "$REPORT"
+          continue
+        fi
+        mv "$u" "$SKILLS_ROOT/$UNAME"
+        usage_write '.skills[$n] = ((.skills[$n] // {use:0}) + {created_by:"agent", first_seen:$now, state:"active", pinned:false})' --arg n "$UNAME" --arg now "$NOWISO"
       done
       # 흡수: from → .archive + absorbed_into 기록 + 참조 재작성(관리 대상 스킬 내부만)
       jq -c '.moves[]' "$STAGING/moves.json" | while IFS= read -r mv_json; do
         FROM=$(printf '%s' "$mv_json" | jq -r '.from'); INTO=$(printf '%s' "$mv_json" | jq -r '.into')
         [ -d "$SKILLS_ROOT/$FROM" ] || continue
+        # 우산이 실제로 설치된 agent 스킬일 때만 흡수 — 미설치 우산(충돌 스킵)이나
+        # 사용자 동명 스킬을 가리키는 move는 차단 (내용 병합 없는 아카이브 방지)
+        if [ ! -f "$SKILLS_ROOT/$INTO/SKILL.md" ] || \
+           [ "$(jq -r --arg i "$INTO" '.skills[$i].created_by // ""' "$USAGE")" != "agent" ]; then
+          echo "- 흡수 건너뜀: $FROM (우산 $INTO 미설치 또는 비-agent 스킬)" >> "$REPORT"; continue
+        fi
         mkdir -p "$ARCHIVE"; mv "$SKILLS_ROOT/$FROM" "$ARCHIVE/$FROM"
-        TMP=$(mktemp); jq --arg n "$FROM" --arg i "$INTO" '.skills[$n] = ((.skills[$n] // {}) + {state:"archived", absorbed_into:$i})' "$USAGE" > "$TMP" && mv "$TMP" "$USAGE"
-        for s in $MANAGED; do
-          F="$SKILLS_ROOT/$s/SKILL.md"
-          [ -f "$F" ] && grep -q "$FROM" "$F" 2>/dev/null && sed -i '' "s/$FROM/$INTO/g" "$F"
-        done
+        usage_write '.skills[$n] = ((.skills[$n] // {}) + {state:"archived", absorbed_into:$i})' --arg n "$FROM" --arg i "$INTO"
+        # 참조 재작성: 이름이 안전 문자셋일 때만, BSD 단어 경계 앵커로 (부분 문자열 오염 방지)
+        case "$FROM$INTO" in
+          *[!a-z0-9-]*) echo "  (참조 재작성 건너뜀: 이름에 안전하지 않은 문자)" >> "$REPORT";;
+          *)
+            for s in $MANAGED; do
+              F="$SKILLS_ROOT/$s/SKILL.md"
+              [ -f "$F" ] && grep -q "$FROM" "$F" 2>/dev/null && sed -i '' "s/[[:<:]]$FROM[[:>:]]/$INTO/g" "$F"
+            done;;
+        esac
         echo "- 흡수: $FROM → $INTO" >> "$REPORT"
       done
     else

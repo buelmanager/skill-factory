@@ -9,9 +9,13 @@ NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 command -v jq >/dev/null 2>&1 || exit 1
 
 [ -f "$USAGE" ] || printf '{"skills":{},"compacted_at":null}\n' > "$USAGE"
-[ -s "$EVENTS" ] || exit 0
 
 PROC="$EVENTS.processing"
+# 이전 실행이 죽으며 남긴 고아 .processing 복구 (덮어쓰면 텔레메트리 영구 유실)
+if [ -f "$PROC" ]; then
+  cat "$PROC" >> "$EVENTS" 2>/dev/null && rm -f "$PROC"
+fi
+[ -s "$EVENTS" ] || exit 0
 mv "$EVENTS" "$PROC" 2>/dev/null || exit 0   # 이후 새 이벤트는 새 파일에 append
 
 CLEAN=$(mktemp); TMP=$(mktemp)

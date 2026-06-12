@@ -120,4 +120,47 @@ run_pass >/dev/null
 assert_eq "T6 no report" "0" "$(command ls "$SK/.curator_reports"/*.md 2>/dev/null | wc -l | tr -d ' ')"
 teardown
 
+# T7: 우산 이름 충돌 → 기존 스킬의 사이드카·디렉터리 불가침 (리뷰 수정 회귀)
+setup
+mk_skill "$SK" fresh-1; mk_skill "$SK" fresh-2
+mkdir -p "$SK/umbrella-skill"   # 사용자가 이미 가진 동명 스킬
+printf -- "---\nname: umbrella-skill\n---\nuser content\n" > "$SK/umbrella-skill/SKILL.md"
+NOWISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq --arg now "$NOWISO" '.skills += {"fresh-1":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"fresh-2":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"umbrella-skill":{use:9,last_activity_at:$now,first_seen:$now,created_by:"user",state:"active",pinned:true}}' "$US" > "$US.tmp" && mv "$US.tmp" "$US"
+CMIN=2 run_pass >/dev/null
+assert_eq "T7 user dir intact" "1" "$(grep -c "user content" "$SK/umbrella-skill/SKILL.md")"
+assert_eq "T7 sidecar still user" "user" "$(jq -r '.skills["umbrella-skill"].created_by' "$US")"
+assert_eq "T7 still pinned" "true" "$(jq -r '.skills["umbrella-skill"].pinned' "$US")"
+assert_eq "T7 absorb skipped" "yes" "$([ -d "$SK/fresh-1" ] && echo yes || echo no)"
+teardown
+
+# T8: dry-run은 .discarded도 삭제하지 않는다 (리뷰 수정 회귀)
+setup
+mkdir -p "$PR/.discarded/old-discard"
+echo x > "$PR/.discarded/old-discard/SKILL.md"
+touch -t 202501010000 "$PR/.discarded/old-discard"
+run_pass --dry-run >/dev/null
+assert_eq "T8 discarded survives dry-run" "yes" "$([ -d "$PR/.discarded/old-discard" ] && echo yes || echo no)"
+teardown
+
+# T9: 스냅샷 실패 → 파괴적 단계 중단 (리뷰 수정 회귀)
+setup
+touch "$SK/.curator_backups"   # 디렉터리 자리에 파일 → mkdir/tar 실패 유도
+run_pass >/dev/null 2>&1
+assert_eq "T9 no archive happened" "no" "$([ -d "$SK/.archive/old-b" ] && echo yes || echo no)"
+assert_eq "T9 abort noted" "1" "$(grep -l "스냅샷 실패" "$SK/.curator_reports"/*.md | wc -l | tr -d ' ')"
+teardown
+
+# T10: 참조 재작성 단어 경계 — 부분 문자열 미오염 (리뷰 수정 회귀)
+setup
+mk_skill "$SK" fresh-1; mk_skill "$SK" fresh-2
+mkdir -p "$SK/fresh-3"
+printf -- "---\nname: fresh-3\ndescription: t\ncreated_by: agent\n---\nsee fresh-1 and fresh-10 for details\n" > "$SK/fresh-3/SKILL.md"
+NOWISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq --arg now "$NOWISO" '.skills += {"fresh-1":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"fresh-2":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false},"fresh-3":{use:5,last_activity_at:$now,first_seen:$now,created_by:"agent",state:"active",pinned:false}}' "$US" > "$US.tmp" && mv "$US.tmp" "$US"
+CMIN=2 run_pass >/dev/null
+assert_eq "T10 exact ref rewritten" "1" "$(grep -c "see umbrella-skill and" "$SK/fresh-3/SKILL.md")"
+assert_eq "T10 substring not corrupted" "1" "$(grep -c "fresh-10 for details" "$SK/fresh-3/SKILL.md")"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

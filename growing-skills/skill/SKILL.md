@@ -13,7 +13,7 @@ description: Use when the user runs /curator or asks about skill proposals, prom
 |---|---|
 | `/curator` 또는 `/curator status` | `curator-ctl.sh status` 실행 + `~/.claude/skills/.curator_reports/`의 최신 보고서 요약을 함께 보여준다 |
 | `/curator review` | 아래 "승격 게이트" 절차 |
-| `/curator run` | `curator-pass.sh` 실행 (포그라운드), 보고서 요약 제시 |
+| `/curator run` | `curator-pass.sh`를 **Bash `run_in_background: true`로 실행** (통합 패스가 최대 900초 — 포그라운드 타임아웃에 죽으면 락·스탬프가 남는다). 완료 알림 후 최신 보고서 요약 제시 |
 | `/curator dry-run` | `curator-pass.sh --dry-run` 실행, 무엇이 일어날지 보고 |
 | `/curator pin <skill>` / `unpin <skill>` | `curator-ctl.sh pin|unpin <skill>` |
 | `/curator pause` / `resume` | `curator-ctl.sh pause|resume` |

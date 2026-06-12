@@ -48,4 +48,13 @@ assert_eq "T4 exit 0" "0" "$?"
 assert_eq "T4 usage intact" "{}" "$(jq -c '.skills' "$US")"
 teardown
 
+# T5: 고아 .processing 복구 — 이전 크래시의 이벤트가 유실되지 않는다 (리뷰 수정 회귀)
+setup
+printf '{"ts":"2026-06-10T01:00:00Z","skill":"alpha","event":"use","session":"s"}\n' > "$EV.processing"
+printf '{"ts":"2026-06-11T01:00:00Z","skill":"alpha","event":"use","session":"s"}\n' > "$EV"
+run_compact
+assert_eq "T5 both counted" "2" "$(jq -r '.skills.alpha.use' "$US")"
+assert_eq "T5 orphan cleaned" "no" "$([ -f "$EV.processing" ] && echo yes || echo no)"
+teardown
+
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
