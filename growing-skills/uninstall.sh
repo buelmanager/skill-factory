@@ -30,6 +30,7 @@ rm -f "$CLAUDE_DIR/hooks/skill-telemetry.sh"
 rm -f "$CLAUDE_DIR/hooks/session-end-queue.sh"
 rm -f "$CLAUDE_DIR/hooks/session-start-curator.sh"
 rm -rf "$CLAUDE_DIR/skills/curator"
+rm -rf "$CLAUDE_DIR/skills/dashboard"
 rm -rf "$CLAUDE_DIR/growing-skills"
 
 CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
