@@ -18,5 +18,9 @@ assert_eq "meta"       "95" "$(sed -n 2p "$F" | jq -r .metadata.idle_days)"
 # 비차단: 빈 event 무시, 호출자 중단 없음
 lifecycle_log "" "x" "y"; echo "after-empty: 계속 실행됨"
 assert_eq "empty ignored" "2" "$(wc -l < "$F" | tr -d ' ')"
+# 잘못된 metadata여도 이벤트는 유실되지 않고 {}로 폴백
+lifecycle_log "stale" "gamma" "30일 미사용" 'NOT JSON'
+assert_eq "bad-meta recorded" "3" "$(wc -l < "$F" | tr -d ' ')"
+assert_eq "bad-meta fallback" "{}" "$(sed -n 3p "$F" | jq -c .metadata)"
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
