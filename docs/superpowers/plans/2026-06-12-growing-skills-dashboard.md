@@ -951,7 +951,7 @@ assert_contains "T6 aging"    "$HTML" "삭제 위험"
     [{l:"리뷰 큐",n:$p.queue},{l:"제안",n:$p.proposals},{l:"활성",n:$p.active},{l:"stale",n:$p.stale},{l:"아카이브",n:$p.archived}]
     | map("<span class=\"pill\"><b>\(.n)</b> \(.l)</span>")|join("<span class=\"arrow\">→</span>")')
   rows=$(printf '%s' "$model" | jq -r '.skills | sort_by(-.use) | map(
-    "<tr><td>\(.name)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
+    "<tr><td>\(.name|@html)</td><td><span class=\"badge \(.state)\">\(.state)</span></td>"
     + "<td>\(.created_by)</td><td>\(.use)</td><td>\(.idle_days // "—")</td>"
     + "<td>\(if .managed and .days_to_stale!=null then (.days_to_stale|tostring) else "—" end)</td>"
     + "<td>\(if .pinned then "📌" else "" end)</td></tr>")|join("")')
@@ -960,7 +960,7 @@ assert_contains "T6 aging"    "$HTML" "삭제 위험"
     | if ($a|length)==0 then "<div class=\"empty\">관리 대상 노화 데이터 없음</div>"
       else ($a | map((if .idle_days>90 then 100 else (.idle_days/90*100) end) as $w
         | (if .idle_days>=90 then "var(--danger)" elif .idle_days>=30 then "var(--warn)" else "var(--accent)" end) as $c
-        | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name) · 유휴 \(.idle_days)일</div>"
+        | "<div style=\"margin:6px 0\"><div class=\"sub\">\(.name|@html) · 유휴 \(.idle_days)일</div>"
         + "<div style=\"background:var(--surface2);border-radius:4px;height:10px\">"
         + "<div style=\"width:\($w)%;height:10px;border-radius:4px;background:\($c)\"></div></div></div>")|join("")) end')
 ```
@@ -1059,7 +1059,7 @@ build_heatmap_svg() {  # $1 = model json
   feed=$(printf '%s' "$model" | jq -r 'if (.lifecycle|length)==0 then "<div class=\"empty\">라이프사이클 기록 없음</div>"
     else (.lifecycle[0:60] | map(
       "<tr><td class=\"sub\">\(.date)</td><td><span class=\"badge \(if .event==\"archived\" or .event==\"discarded\" then \"archived\" elif .event==\"stale\" then \"stale\" else \"active\" end)\">\(.event)</span></td>"
-      + "<td>\(.skill)</td><td class=\"sub\">\(.reason)</td></tr>")|join(""))
+      + "<td>\(.skill|@html)</td><td class=\"sub\">\(.reason|@html)</td></tr>")|join(""))
       | "<table><thead><tr><th>날짜</th><th>이벤트</th><th>스킬</th><th>이유</th></tr></thead><tbody>" + . + "</tbody></table>" end')
   # W9 일대기: 스킬별 이벤트 그룹 + use/first_seen
   provenance=$(printf '%s' "$model" | jq -r '
@@ -1067,8 +1067,8 @@ build_heatmap_svg() {  # $1 = model json
     | (.lifecycle | group_by(.skill)) as $g
     | if ($g|length)==0 then "<div class=\"empty\">이유 이벤트가 아직 없습니다 (시스템이 돌면 채워집니다)</div>"
       else ($g | map(. as $evs | $evs[0].skill as $nm
-        | "<details><summary><b>\($nm)</b> <span class=\"sub\">use \($meta[$nm].use // 0) · 상태 \($meta[$nm].state // "?")</span></summary>"
-        + ($evs | sort_by(.date) | map("<div class=\"ev\"><span class=\"sub\">\(.date)</span> · <b>\(.event)</b> — \(.reason)</div>")|join(""))
+        | "<details><summary><b>\($nm|@html)</b> <span class=\"sub\">use \($meta[$nm].use // 0) · 상태 \($meta[$nm].state // "?")</span></summary>"
+        + ($evs | sort_by(.date) | map("<div class=\"ev\"><span class=\"sub\">\(.date)</span> · <b>\(.event)</b> — \(.reason|@html)</div>")|join(""))
         + "</details>")|join("")) end')
 ```
 
