@@ -33,4 +33,15 @@ printf '{"skills":{},"compacted_at":null}\n' > "$SK5/.usage.json"
 GROWING_SKILLS_ROOT="$SK5" GROWING_SKILLS_HOME="$PKG" GROWING_SKILLS_PROPOSALS_DIR="$PR5" bash "$PKG/bin/curator-pass.sh" >/dev/null 2>&1
 assert_eq "discard emit" "stale-prop" "$(jq -r 'select(.event=="discarded").skill' "$SK5/.lifecycle-events.jsonl" 2>/dev/null | head -1)"
 
+# curator-ctl promote
+SB3=$(mktemp -d); SK3="$SB3/skills"; PR3="$SB3/proposals"; mkdir -p "$SK3" "$PR3/new-skill"
+printf -- "---\nname: new-skill\ncreated_by: agent\nproposed_at: %s\n---\nx\n" "$(date +%Y-%m-%d)" > "$PR3/new-skill/SKILL.md"
+printf '{"skills":{},"compacted_at":null}\n' > "$SK3/.usage.json"
+GROWING_SKILLS_ROOT="$SK3" GROWING_SKILLS_PROPOSALS_DIR="$PR3" bash "$PKG/bin/curator-ctl.sh" promote new-skill >/dev/null 2>&1
+assert_eq "promote emit" "new-skill" "$(jq -r 'select(.event=="promoted").skill' "$SK3/.lifecycle-events.jsonl" 2>/dev/null | head -1)"
+# restore
+mkdir -p "$SK3/.archive/gone"; printf -- "---\nname: gone\n---\nx\n" > "$SK3/.archive/gone/SKILL.md"
+GROWING_SKILLS_ROOT="$SK3" GROWING_SKILLS_PROPOSALS_DIR="$PR3" bash "$PKG/bin/curator-ctl.sh" restore gone >/dev/null 2>&1
+assert_eq "restore emit" "gone" "$(jq -r 'select(.event=="restored").skill' "$SK3/.lifecycle-events.jsonl" 2>/dev/null | head -1)"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
