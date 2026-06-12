@@ -44,4 +44,20 @@ mkdir -p "$SK3/.archive/gone"; printf -- "---\nname: gone\n---\nx\n" > "$SK3/.ar
 GROWING_SKILLS_ROOT="$SK3" GROWING_SKILLS_PROPOSALS_DIR="$PR3" bash "$PKG/bin/curator-ctl.sh" restore gone >/dev/null 2>&1
 assert_eq "restore emit" "gone" "$(jq -r 'select(.event=="restored").skill' "$SK3/.lifecycle-events.jsonl" 2>/dev/null | head -1)"
 
+# run-reviewer proposed emit (claude 스텁이 rationale 포함 제안 작성)
+SB4=$(mktemp -d); SK4="$SB4/skills"; PR4="$SB4/proposals"; STUB="$SB4/stub"
+mkdir -p "$SK4/.review-queue" "$PR4" "$STUB"
+printf 'digest content\n' > "$SK4/.review-queue/20260611-000000-x.md"
+cat > "$STUB/claude" <<STUBEOF
+#!/bin/bash
+mkdir -p "$PR4/fixing-x"
+printf -- "---\nname: fixing-x\ndescription: Use when...\ncreated_by: agent\nproposed_at: %s\nsource_session: sess-9\nrationale: git rebase 충돌을 반복 수동 해결함\n---\nproc\n" "\$(date +%Y-%m-%d)" > "$PR4/fixing-x/SKILL.md"
+echo "리뷰 보고"
+STUBEOF
+chmod +x "$STUB/claude"
+PATH="$STUB:$PATH" GROWING_SKILLS_FORCE=1 GROWING_SKILLS_ROOT="$SK4" GROWING_SKILLS_HOME="$PKG" GROWING_SKILLS_PROPOSALS_DIR="$PR4" bash "$PKG/bin/run-reviewer.sh" >/dev/null 2>&1
+LF4="$SK4/.lifecycle-events.jsonl"
+assert_eq "proposed emit"   "fixing-x" "$(jq -r 'select(.event=="proposed").skill' "$LF4" 2>/dev/null | head -1)"
+assert_eq "proposed reason" "ok" "$(jq -r 'select(.event=="proposed").reason' "$LF4" 2>/dev/null | grep -q rebase && echo ok || echo no)"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
