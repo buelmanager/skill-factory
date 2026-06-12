@@ -572,6 +572,8 @@ build_model() {
 }
 ```
 
+> **구현 보강(필수):** 위 jq는 `.archive/`에만 존재하는 스킬(usage·라이브 디렉토리 모두 없음)을 누락한다. 머지 직후 `$arch_extra` 단계를 추가해, `$merged`에 없는 archived 이름을 `{state:"archived", ...}`로 보강한 뒤 상태 오버라이드 패스를 돈다(이름으로 dedup). Task 7은 `... as $skills` 이후만 교체하므로 이 보강은 유지된다.
+
 - [ ] **Step 4: 통과 확인** — `bash tests/test-dashboard.sh` → T1·T2 PASS.
 
 - [ ] **Step 5: 커밋**
