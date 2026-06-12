@@ -34,4 +34,30 @@ assert_eq "T2 tracked use"       "5"      "$(printf '%s' "$OUT" | jq -r '.skills
 assert_eq "T2 archived state"    "archived" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="old-archived").state')"
 assert_eq "T2 total"             "3"      "$(printf '%s' "$OUT" | jq -r '.skills|length')"
 
+# T3: 파생 + summary + pipeline + state
+new_env
+mk_skill "$SK" fresh agent; mk_skill "$SK" aging agent; mk_skill "$SK" mine user
+jq -n --arg d40 "$(iso_days_ago 40)" --arg d2 "$(iso_days_ago 2)" '{skills:{
+  fresh:{use:9,created_by:"agent",state:"active",pinned:false,first_seen:$d2,last_activity_at:$d2},
+  aging:{use:1,created_by:"agent",state:"stale",pinned:false,first_seen:$d40,last_activity_at:$d40},
+  mine:{use:2,created_by:"user",state:"active",pinned:true,first_seen:$d2,last_activity_at:$d2}
+},compacted_at:null}' > "$SK/.usage.json"
+mkdir -p "$PR/pending-1"; printf -- "---\nname: pending-1\nproposed_at: 2026-06-10\n---\nx\n" > "$PR/pending-1/SKILL.md"
+mkdir -p "$PR/.discarded/dead-1" "$SK/.review-queue"
+printf 'd\n' > "$SK/.review-queue/20260611-000000-abc.md"
+printf '{"last_run_at":1781174539,"paused":true}\n' > "$SK/.curator_state"
+printf '{"last_run_at":1781161142}\n' > "$SK/.reviewer_state"
+OUT=$(runjson)
+assert_eq "T3 aging idle>=40"    "ok" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="aging")|if .idle_days>=40 then "ok" else "no" end')"
+assert_eq "T3 aging dtostale<=0" "ok" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="aging")|if .days_to_stale<=0 then "ok" else "no" end')"
+assert_eq "T3 mine managed"      "false" "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="mine").managed')"
+assert_eq "T3 fresh managed"     "true"  "$(printf '%s' "$OUT" | jq -r '.skills[]|select(.name=="fresh").managed')"
+assert_eq "T3 active"            "2" "$(printf '%s' "$OUT" | jq -r '.summary.active')"
+assert_eq "T3 stale"             "1" "$(printf '%s' "$OUT" | jq -r '.summary.stale')"
+assert_eq "T3 agent"             "2" "$(printf '%s' "$OUT" | jq -r '.summary.agent_created')"
+assert_eq "T3 pinned"            "1" "$(printf '%s' "$OUT" | jq -r '.summary.pinned')"
+assert_eq "T3 pending"           "1" "$(printf '%s' "$OUT" | jq -r '.summary.proposals_pending')"
+assert_eq "T3 queue"             "1" "$(printf '%s' "$OUT" | jq -r '.summary.review_queue')"
+assert_eq "T3 paused"            "true" "$(printf '%s' "$OUT" | jq -r '.summary.paused')"
+
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

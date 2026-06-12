@@ -35,10 +35,20 @@ archived_json() {
 
 build_model() {
   local usage_skills dir_skills archived
+  local pend disc queue cur_run rev_run paused
+  pend=$(find "$PROPOSALS" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | while read -r d; do [ -f "$d/SKILL.md" ] && echo x; done | wc -l | tr -d ' ')
+  disc=$(find "$PROPOSALS/.discarded" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  queue=$(find "$SKILLS_ROOT/.review-queue" -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  cur_run=$([ -f "$SKILLS_ROOT/.curator_state" ] && jq -r '.last_run_at // empty' "$SKILLS_ROOT/.curator_state" 2>/dev/null || true)
+  rev_run=$([ -f "$SKILLS_ROOT/.reviewer_state" ] && jq -r '.last_run_at // empty' "$SKILLS_ROOT/.reviewer_state" 2>/dev/null || true)
+  paused=$([ -f "$SKILLS_ROOT/.curator_state" ] && jq -r '.paused // false' "$SKILLS_ROOT/.curator_state" 2>/dev/null || echo false)
+  [ -n "$cur_run" ] || cur_run=null; [ -n "$rev_run" ] || rev_run=null
   usage_skills=$([ -f "$USAGE" ] && jq '.skills // {}' "$USAGE" || echo '{}')
   dir_skills=$(dir_skills_json); archived=$(archived_json)
   jq -n --arg gen "$NOWISO" --argjson th "$(thresholds_json)" \
-    --argjson usage "$usage_skills" --argjson dirs "$dir_skills" --argjson archived "$archived" '
+    --argjson usage "$usage_skills" --argjson dirs "$dir_skills" --argjson archived "$archived" \
+    --argjson now "$NOW" --argjson pend "$pend" --argjson disc "$disc" --argjson queue "$queue" \
+    --argjson cur "$cur_run" --argjson rev "$rev_run" --argjson paused "$paused" '
     ($usage | to_entries | map({name:.key} + .value)) as $base
     | ($base | map(.name)) as $known
     | ($dirs | map(select(.name as $n | ($known|index($n))|not)
@@ -55,12 +65,31 @@ build_model() {
             use:(.use // 0), first_seen:(.first_seen // null),
             last_activity_at:(.last_activity_at // null), pinned:(.pinned // false),
             absorbed_into:(.absorbed_into // null), curated:(.curated // false) }) as $skills
+    | (def to_epoch: if . == null then null else (try (strptime("%Y-%m-%dT%H:%M:%SZ")|mktime) catch null) end;
+       $skills | map(
+         ((.last_activity_at // .first_seen) | to_epoch) as $le
+         | (if $le == null then null else (($now - $le)/86400|floor) end) as $idle
+         | . + { idle_days:$idle,
+             managed: ((.created_by=="agent" or .curated==true) and (.pinned|not) and .state!="archived"),
+             days_to_stale: (if $idle==null then null else (30 - $idle) end),
+             days_to_archive: (if $idle==null then null else (90 - $idle) end) }
+         | del(.curated) )) as $skills2
     | { generated_at:$gen, thresholds:$th,
-        summary:{active:0,stale:0,archived:0,agent_created:0,user_created:0,pinned:0,
-                 proposals_pending:0,proposals_discarded:0,review_queue:0,
-                 last_curator_run:null,last_reviewer_run:null,paused:false},
-        pipeline:{queue:0,proposals:0,active:0,stale:0,archived:0,absorbed:0},
-        skills:$skills, events_by_day:[], lifecycle:[] }'
+        summary:{
+          active:($skills2|map(select(.state=="active"))|length),
+          stale:($skills2|map(select(.state=="stale"))|length),
+          archived:($skills2|map(select(.state=="archived"))|length),
+          agent_created:($skills2|map(select(.created_by=="agent"))|length),
+          user_created:($skills2|map(select(.created_by=="user"))|length),
+          pinned:($skills2|map(select(.pinned))|length),
+          proposals_pending:$pend, proposals_discarded:$disc, review_queue:$queue,
+          last_curator_run:$cur, last_reviewer_run:$rev, paused:$paused },
+        pipeline:{ queue:$queue, proposals:$pend,
+          active:($skills2|map(select(.state=="active"))|length),
+          stale:($skills2|map(select(.state=="stale"))|length),
+          archived:($skills2|map(select(.state=="archived"))|length),
+          absorbed:($skills2|map(select(.absorbed_into!=null))|length) },
+        skills:$skills2, events_by_day:[], lifecycle:[] }'
 }
 
 MODE="${1:-html}"
