@@ -5,33 +5,56 @@ description: Use when starting any development task — feature request, bug rep
 
 # Dev Lifecycle
 
-Pick exactly one track before doing anything. Run stages in order; skipping a listed stage requires stating why to the user.
+Pick one **base track** (work-kind + clarity), then layer on any **risk gates** that fire. Gates are evaluated first and override — a "trivial" or "bug" label never exempts a change from a gate. Run stages in order; skipping a listed stage requires stating why to the user, but a fired risk gate is non-skippable.
 
-## Track Selection (observable triggers)
+## Track Selection
+
+### Base track (work-kind + clarity)
 
 | Track | Trigger |
 |---|---|
-| **Light** | Bug report (error/symptom given) OR trivial edit (one file, one fact: typo, config value) |
-| **Heavy** | Any of: requirements ambiguous enough to need a spec; spans multiple sessions; hard-to-reverse decision; security/data boundary change. Runs with ultracode (full delegation budget). |
+| **Light** | Clear bug (error/symptom given) OR trivial edit (one file, one fact: typo, config value) |
+| **Heavy** | Requirements ambiguous enough to need a spec, OR spans multiple sessions. = Basic with /spec + /plan-eng-review prepended. Runs with ultracode (full delegation budget). |
 | **Basic** | Everything else — default for ordinary features/improvements |
+
+### Risk gates (independent overlay — check first, apply on top of ANY track)
+
+| Gate fires when | Attach regardless of base track |
+|---|---|
+| Security / data boundary touched (auth, input, secrets, data exposure) | + /security-review (required, before /ship); prompt stays on Opus 4.8 |
+| Hard-to-reverse (schema/data migration, public API change, deletion) | + worktree + /freeze (before implementation) + /codex review (before /ship) |
+| Deploy target | + /land-and-deploy → /canary --quick (after /ship) |
+| Release-grade UI | /verify becomes full /qa |
+
+"One file, one config value" is not "low risk" — a single line that flips a security/data boundary stays Light in structure but still carries the security gate.
 
 ## Command Order (cheat sheet)
 
+Base track — pick one:
 ```
+Light : clear bug → /investigate "<symptom>" → /ship (direct commit if tiny)
+        trivial   → fix inline → one verification run → commit. No skills, no subagents.
 Basic : brainstorming → writing-plans → subagent-driven-development(+TDD)
         → /code-review (medium) → /verify (UI: /qa-only --quick) → /ship
-        [worktree first ONLY if the feature spans multiple sessions]
-        [→ /land-and-deploy → /canary --quick only if deploy target]
-Light : bug    → /investigate "<symptom>" → /ship (direct commit if tiny)
-        trivial→ fix inline → one verification run → commit. No skills, no subagents.
-Heavy : /spec → writing-plans → /plan-eng-review → worktree + /freeze (mandatory here)
-        → subagent-driven-development (parallel independent tasks) → /simplify → /code-review (medium)
-        → /codex review (optional: only irreversible OR security-sensitive changes)
-        → /security-review (required if auth/input/secrets touched) → /qa
-        → /ship → /land-and-deploy → /canary --quick
+        [skip brainstorming when requirements are already clear — say why; first-class path, not an exception]
+        [worktree first ONLY if the work spans multiple sessions]
+Heavy : /spec → writing-plans → /plan-eng-review → worktree (isolation)
+        → subagent-driven-development(+TDD, parallel independent tasks)
+        → /simplify → /code-review (medium) → /verify (UI: /qa-only --quick) → /ship
 ```
 
-Non-skippable when tempted: worktree+/freeze on the heavy track; /code-review after implementation (per-task SDD reviews do not replace the whole-diff review); /ship instead of manual commit+PR.
+Risk gates — layer onto whichever track above, ordered relative to it:
+```
+security/data boundary → /security-review before /ship (required)
+hard-to-reverse        → worktree + /freeze before implementation; /codex review before /ship
+deploy target          → /land-and-deploy → /canary --quick after /ship
+release-grade UI        → /verify (or /qa-only --quick) becomes full /qa
+```
+(All four gates firing on a Heavy base reproduces the old full heavy line: /spec → … → worktree+/freeze → SDD → /simplify → /code-review → /codex review → /security-review → /qa → /ship → /land-and-deploy → /canary.)
+
+Non-skippable when tempted: any fired risk gate (you cannot drop /security-review or /freeze just because the base track is Light/Basic); /code-review after implementation (per-task SDD reviews do not replace the whole-diff review); /ship instead of manual commit+PR.
+
+Escalation: the track is chosen once, but re-declare if discovery changes the picture — a Light bug whose fix spans multiple files or crosses a boundary becomes Basic/Heavy plus the relevant gate. Surface the re-route to the user.
 
 ## Context-Protection Profile (per stage)
 
@@ -51,12 +74,13 @@ Match model to a stage's reasoning load + irreversibility, not its token volume.
 
 | Tier | Stages | Model |
 |---|---|---|
-| **Strong** (reasoning / implementation / verification / gates) | brainstorming, /spec, writing-plans, /plan-*-review, SDD implementation, /code-review, /simplify, /verify, /qa, /ship | strongest available coding model — **Fable 5** (2026-06: GA flagship above Opus, coding + finance + long-agentic leader); **Opus 4.8** = half-cost fallback |
+| **Strong** (reasoning / implementation / verification / gates) | brainstorming, /spec, writing-plans, /plan-*-review, SDD implementation, /code-review, /simplify, /verify, /qa, /ship | **Fable 5** (primary), fallback **Opus 4.8** |
 | **Cheap** (read-only / mechanical, output re-validated downstream) | pre-plan codebase research & Explore fan-out, /freeze + git mechanics, /canary, /land-and-deploy, routine test scaffolding | Sonnet 4.6 / Haiku 4.5 |
 
 - Default = session model everywhere; override DOWN to cheap only for the read-only/mechanical subagents above.
+- Strong tier = **Fable 5**; fall back to **Opus 4.8** when Fable 5 is unavailable (free period ended / not selectable / rate-limited) or its added cost isn't worth it. Realize it by setting the session model to Fable 5 — main-session stages inherit it.
 - Never downgrade correctness-critical implementation (determinism, security boundaries) to the cheap tier.
-- Security-sensitive prompts (cybersecurity, secrets/keyring) auto-route to Opus 4.8 regardless — no manual override needed.
+- Security-sensitive prompts (cybersecurity, secrets/keyring) auto-route to Opus 4.8 regardless of the strong-tier default (Fable 5) — the audited flagship is the deliberate exception here; no manual override needed, never the cheap tier.
 - Cross-*family* review stays /codex review (OpenAI); model tiering here is within the Claude family and gives capability/cost matching, not an independent second opinion.
 
 ## Overlap Rules
