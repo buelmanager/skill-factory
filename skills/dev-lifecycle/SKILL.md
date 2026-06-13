@@ -74,13 +74,12 @@ Match model to a stage's reasoning load + irreversibility, not its token volume.
 
 | Tier | Stages | Model |
 |---|---|---|
-| **Strong** (reasoning / implementation / verification / gates) | brainstorming, /spec, writing-plans, /plan-*-review, SDD implementation, /code-review, /simplify, /verify, /qa, /ship | **Fable 5** (primary), fallback **Opus 4.8** |
+| **Strong** (reasoning / implementation / verification / gates) | brainstorming, /spec, writing-plans, /plan-*-review, SDD implementation, /code-review, /simplify, /verify, /qa, /ship | strongest available coding model — **Opus 4.8** |
 | **Cheap** (read-only / mechanical, output re-validated downstream) | pre-plan codebase research & Explore fan-out, /freeze + git mechanics, /canary, /land-and-deploy, routine test scaffolding | Sonnet 4.6 / Haiku 4.5 |
 
 - Default = session model everywhere; override DOWN to cheap only for the read-only/mechanical subagents above.
-- Strong tier = **Fable 5**; fall back to **Opus 4.8** when Fable 5 is unavailable (free period ended / not selectable / rate-limited) or its added cost isn't worth it. Realize it by setting the session model to Fable 5 — main-session stages inherit it.
 - Never downgrade correctness-critical implementation (determinism, security boundaries) to the cheap tier.
-- Security-sensitive prompts (cybersecurity, secrets/keyring) auto-route to Opus 4.8 regardless of the strong-tier default (Fable 5) — the audited flagship is the deliberate exception here; no manual override needed, never the cheap tier.
+- Security-sensitive prompts (cybersecurity, secrets/keyring) stay on Opus 4.8 — never downgrade them to the cheap tier.
 - Cross-*family* review stays /codex review (OpenAI); model tiering here is within the Claude family and gives capability/cost matching, not an independent second opinion.
 
 ## Overlap Rules
