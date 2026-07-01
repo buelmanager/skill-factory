@@ -135,7 +135,7 @@ MVP가 검증하는 **가장 위험한 가정** (출시 판단 기준 — `00-br
 
 | M | 내용 | 완료 기준(Demo) |
 |---|---|---|
-| **M-1** {{milestone_mminus1_name}} | {{milestone_m-1_content}} | {{milestone_m-1_demo}} |
+| **M-1** {{milestone_mminus1_name}} | {{milestone_mminus1_content}} | {{milestone_mminus1_demo}} |
 | **M0** {{milestone_m0_name}} | {{milestone_m0_content}} | {{milestone_m0_demo}} |
 | **M1** {{milestone_m1_name}} | {{milestone_m1_content}} | {{milestone_m1_demo}} |
 | **M2** {{milestone_m2_name}} | {{milestone_m2_content}} | {{milestone_m2_demo}} |
