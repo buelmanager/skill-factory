@@ -4,11 +4,11 @@ Reference for Phase 5 (Plan/dev-process). Covers how the orchestrator stands up 
 
 ## Goal
 
-Install the dev-process SSOT into the new project: `docs/dev/{README,WORKFLOW,SESSION-CLOSE}.md`, an initial `docs/dev/PROGRESS.md` derived from `roadmap.md`, and an empty `docs/sessions/` directory ready for the `dev-handoff` skill to write into during real development.
+Install the dev-process SSOT into the new project: `docs/dev/{README,WORKFLOW,SESSION-CLOSE}.md`, an initial `docs/dev/PROGRESS.md` derived from `docs/roadmap.md`, and an empty `docs/sessions/` directory ready for the `dev-handoff` skill to write into during real development.
 
 ## Files to place
 
-Copy these Phase 5 templates (produced by Task 8) into the new project, filling placeholders from `roadmap.md` / `mvp-prd.md` §9 / `architecture.md` per the normal subagent delegation rule:
+Copy these Phase 5 templates (produced by Task 8) into the new project, filling placeholders from `docs/roadmap.md` / `mvp-prd.md` §9 / `architecture.md` per the normal subagent delegation rule:
 
 | Template | Destination |
 |---|---|
@@ -28,13 +28,15 @@ Copy these Phase 5 templates (produced by Task 8) into the new project, filling 
 
 Do **not** copy this script into the new project and do **not** reimplement its parsing/generation logic. Reference it by absolute path (it resolves the repo root itself via `git rev-parse --show-toplevel`, so it works unmodified in the new project).
 
-To produce the initial `PROGRESS.md` — after `roadmap.md` exists with stable task IDs (`- **<ID>**` bold-bullet convention) but before any session handoff has been written — run:
+Note: the script hardcodes its roadmap read path as `docs/roadmap.md` and writes `docs/dev/PROGRESS.md` — both paths must exist exactly there or `regen` fails with ENOENT.
+
+To produce the initial `PROGRESS.md` — after `docs/roadmap.md` exists with stable task IDs (`- **<ID>**` bold-bullet convention) but before any session handoff has been written — run:
 
 ```bash
 node "$HOME/.claude/skills/dev-handoff/regen-progress.mjs" regen
 ```
 
-This regenerates `docs/dev/PROGRESS.md` from `roadmap.md`. With zero handoffs on record, every task lands in the `todo` state — this all-todo PROGRESS.md is the expected Phase 5 output, carrying the standard derived-file banner:
+This regenerates `docs/dev/PROGRESS.md` from `docs/roadmap.md`. With zero handoffs on record, every task lands in the `todo` state — this all-todo PROGRESS.md is the expected Phase 5 output, carrying the standard derived-file banner:
 
 ```
 <!-- DERIVED — 손으로 고치지 말 것. dev-handoff/regen-progress.mjs가 생성 -->
@@ -52,4 +54,4 @@ After `regen` produces the initial `PROGRESS.md`, confirm the start gate is clea
 node "$HOME/.claude/skills/dev-handoff/regen-progress.mjs" --check
 ```
 
-Expected: exit 0 — no staleness, no hand-edits, no unrecorded implementation commits (there shouldn't be any yet, since the project hasn't reached M-1). If this reports non-zero, stop and reconcile `roadmap.md`/`PROGRESS.md` before moving to Phase 6 — do not proceed with a dirty start gate.
+Expected: exit 0 — no staleness, no hand-edits, no unrecorded implementation commits (there shouldn't be any yet, since the project hasn't reached M-1). If this reports non-zero, stop and reconcile `docs/roadmap.md`/`PROGRESS.md` before moving to Phase 6 — do not proceed with a dirty start gate.

@@ -29,7 +29,7 @@ These are generated regardless of flag values:
 - `AGENT.md`
 - `README.md`
 - `docs/README.md`
-- `roadmap.md`
+- `docs/roadmap.md`
 - `getting-started.md`
 - `docs/dev/README.md`
 - `docs/dev/WORKFLOW.md`

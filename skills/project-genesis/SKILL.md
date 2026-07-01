@@ -31,7 +31,7 @@ Output: `docs/00-brief.md` (the cleaned-up SSOT of intake) plus the trait flags 
 | 2 | Architecture/domain | `architecture.md`, `glossary.md`; *`data-model.md`* (if has_persistent_data), *`infra-security-spec.md`* (if is_multitenant_saas) | Universal + conditional | mvp-prd |
 | 3 | Engineering specs | `test-strategy.md`; *`api-spec.md`* (if has_api), *`ui-flows.md`* (if has_ui), *`core-module-spec.md` × N* (one per core_risk_modules entry) | Conditional | mvp-prd, glossary, data-model |
 | 4 | Constitution | `CLAUDE.md`, `AGENT.md`, `README.md`, `docs/README.md` | Universal | mvp-prd §6, all prior docs |
-| 5 | Plan/dev-process | `roadmap.md` (M-1..M5 · task IDs · gates) + `docs/dev/{README,WORKFLOW,SESSION-CLOSE}` + initial `PROGRESS.md` (regen) | Universal | mvp-prd §9, architecture, infra-security |
+| 5 | Plan/dev-process | `docs/roadmap.md` (M-1..M5 · task IDs · gates) + `docs/dev/{README,WORKFLOW,SESSION-CLOSE}` + initial `PROGRESS.md` (regen) | Universal | mvp-prd §9, architecture, infra-security |
 | 6 | Repo skeleton | Monorepo/single-app directories + package README + `.env.example` + `getting-started.md` + `infra/README.md` + scaffold commit | Universal + stack-conditional | mvp-prd §6, infra-security |
 | 7 | Dashboard | Install `scripts/dashboard.mjs` + generate `docs/dashboard/index.html` → open | Universal (finale) | PROGRESS.md, docs/sessions |
 
