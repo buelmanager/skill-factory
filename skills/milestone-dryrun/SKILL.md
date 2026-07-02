@@ -13,10 +13,13 @@ PROGRESS.md 마일스톤을 WORKFLOW.md 기준으로 가상 드라이런(문서 
 ```bash
 ROOT="$(git rev-parse --show-toplevel)"
 test -f "$ROOT/docs/dev/PROGRESS.md" && test -f "$ROOT/docs/dev/WORKFLOW.md" || {
-  echo "milestone-dryrun: docs/dev/PROGRESS.md + WORKFLOW.md 필요 — 이 repo는 대상 아님"; exit 0; }
+  echo "milestone-dryrun: docs/dev/PROGRESS.md + WORKFLOW.md 필요."
+  echo "→ 이 문서들이 없다면 아직 초기화되지 않은 프로젝트다. project-genesis 스킬로"
+  echo "  프로젝트를 셋업하면 roadmap·dev-process SSOT(PROGRESS.md/WORKFLOW.md)가 생성된다."
+  exit 0; }
 ```
 
-게이트 실패 시 no-op + 위 안내만 출력하고 종료한다.
+게이트 실패 시 no-op + 위 안내만 출력하고 종료한다. **드라이런에 필요한 문서(PROGRESS.md·WORKFLOW.md)가 없으면 먼저 `project-genesis` 스킬을 실행해 프로젝트를 초기화한다** — project-genesis가 인테이크→mvp-prd→스펙→로드맵→`docs/dev/` SSOT(PROGRESS.md·WORKFLOW.md 포함)까지 생성해 이 스킬의 전제조건을 갖춰준다. 그 뒤 milestone-dryrun을 재실행한다.
 
 ## 호출 계약
 
