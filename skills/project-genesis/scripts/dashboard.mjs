@@ -34,6 +34,44 @@ export function parseProgress(md) {
   return { status, rollup, tasks };
 }
 
+export function parseSession(md, filename) {
+  const fm = md.match(/^---\n([\s\S]*?)\n---/);
+  const body = fm ? md.slice(fm[0].length) : md;
+  const block = fm ? fm[1] : '';
+  const get = (k) => {
+    const m = block.match(new RegExp('^' + k + '\\s*:\\s*(.+)$', 'm'));
+    return m ? m[1].trim() : null;
+  };
+  const arr = (k) => {
+    const raw = get(k);
+    if (!raw) return [];
+    const inner = raw.replace(/^\[|\]$/g, '').trim();
+    return inner ? inner.split(',').map(s => s.trim()).filter(Boolean) : [];
+  };
+  const statusAfter = {};
+  const saRaw = get('status_after');
+  if (saRaw) {
+    const inner = saRaw.replace(/^\{|\}$/g, '');
+    for (const pair of inner.split(',')) {
+      const m = pair.match(/([^:]+):\s*(\S+)/);
+      if (m) statusAfter[m[1].trim()] = m[2].trim();
+    }
+  }
+  const nextRaw = get('next_action');
+  const nextAction = nextRaw ? nextRaw.replace(/^"|"$/g, '') : null;
+  const titleM = body.match(/^#\s+(.+)$/m);
+  return {
+    session: get('session'),
+    milestones: arr('milestones'),
+    tasksTouched: arr('tasks_touched'),
+    statusAfter,
+    nextAction,
+    meta: get('meta') === 'true',
+    title: titleM ? titleM[1].trim() : filename,
+    filename,
+  };
+}
+
 function parseRow(line) {
   if (!/^\s*\|/.test(line)) return null;
   const cells = line.split('|').slice(1, -1).map(c => c.trim());
