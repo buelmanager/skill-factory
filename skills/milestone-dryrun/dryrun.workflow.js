@@ -12,9 +12,12 @@ export const meta = {
 
 const A = typeof args === 'string' ? JSON.parse(args) : (args || {})
 const { milestones, repoRoot, ts, branch } = A
-const M = A.model // optional model override (e.g. 'sonnet') to conserve limits — agents inherit session model when unset
-const mo = (o) => (M ? { ...o, model: M } : o)
-log(`milestone-dryrun: ${milestones.length} milestones — ${milestones.join(', ')}${M ? ` (model=${M})` : ''}`)
+const M = A.model // optional GLOBAL override (e.g. 'sonnet') — forces ONE model on every agent to conserve limits
+// Per-role model (CLAUDE.md §4: delegated units never inherit the parent/Fable — always set model explicitly).
+// opus = hard-judgment roles (find lenses, adversarial verify); sonnet = mechanical (dedup, fix-edit, report).
+// A GLOBAL override (A.model) wins over the role default when set. Unknown role → sonnet ("애매하면 sonnet").
+const mo = (o, def = 'sonnet') => ({ ...o, model: M || def })
+log(`milestone-dryrun: ${milestones.length} milestones — ${milestones.join(', ')}${M ? ` (model=${M} forced)` : ' (find/verify=opus, dedup/fix/report=sonnet)'}`)
 
 // ---------------- shared context + schema ----------------
 const sharedFor = (MID) => `
@@ -56,7 +59,7 @@ const lensPrompt = (MID, lens) => sharedFor(MID) + ({
 })[lens]
 
 const found = await parallel(milestones.flatMap((MID) => LENSES.map((lens) => () =>
-  agent(lensPrompt(MID, lens), mo({ label: `find:${MID}:${lens}`, phase: 'Find', schema: FINDINGS_SCHEMA }))
+  agent(lensPrompt(MID, lens), mo({ label: `find:${MID}:${lens}`, phase: 'Find', schema: FINDINGS_SCHEMA }, 'opus'))
     .then((r) => ({ MID, lens, r })))))
 
 const perMilestone = {}
@@ -82,7 +85,7 @@ const DEDUP_SCHEMA = {
 }
 const uniqueDoc = allDoc.length ? (await agent(
   `Merge duplicate/near-duplicate doc findings into canonical items (union evidence, keep highest severity, note reporting milestones in "affects"). Preserve every DISTINCT issue. Assign ids F1,F2,…. Many are milestone-independent (WORKFLOW.md properties) so expect heavy overlap.\n\nRAW (JSON):\n${JSON.stringify(allDoc, null, 2)}`,
-  mo({ label: 'dedup', phase: 'Dedup', schema: DEDUP_SCHEMA }))).unique : []
+  mo({ label: 'dedup', phase: 'Dedup', schema: DEDUP_SCHEMA }, 'sonnet'))).unique : []
 log(`${uniqueDoc.length} unique doc findings after dedup`)
 
 // ---------------- Phase 3: Adversarial verify + fallback (no silent drop) ----------------
@@ -101,7 +104,7 @@ const verifyPrompt = (f, attempt) => `Adversarially VERIFY this doc finding. Def
 
 async function verifyWithFallback(f) {
   for (const attempt of [1, 2]) {
-    const v = await agent(verifyPrompt(f, attempt), mo({ label: `verify:${f.id}${attempt > 1 ? ':retry' : ''}`, phase: 'Verify', schema: VERIFY_SCHEMA })).catch(() => null)
+    const v = await agent(verifyPrompt(f, attempt), mo({ label: `verify:${f.id}${attempt > 1 ? ':retry' : ''}`, phase: 'Verify', schema: VERIFY_SCHEMA }, 'opus')).catch(() => null)
     if (v) return { ...f, ...v }
   }
   return { ...f, verdict: 'UNVERIFIED', corrected_severity: f.severity, reasoning: 'verify failed after retry — reported unverified (not silently dropped)', mitigation: 'none', fix_hint: '', code_rooted: false }
@@ -128,7 +131,7 @@ for (let round = 1; round <= MAX_ROUNDS && emptyStreak < K; round++) {
   for (const f of fixList) { // sequential — shared docs/dev/*.md, avoid write races
     const res = await agent(
       `Apply a MINIMAL, surgical edit that resolves this CONFIRMED ${f.corrected_severity} doc finding. ONLY edit files under ${repoRoot}/docs/dev/*.md (whitelist — freeze will block anything else). Do not rewrite sections; add the least text that fixes it. Then STATE the exact before→after.\n\nFinding + fix_hint:\n${JSON.stringify(f, null, 2)}`,
-      mo({ label: `fix:${f.id}`, phase: 'Fix', schema: FIX_SCHEMA })).catch(() => null)
+      mo({ label: `fix:${f.id}`, phase: 'Fix', schema: FIX_SCHEMA }, 'sonnet')).catch(() => null)
     if (res && res.applied) fixed.push({ ...f, fix: res })
   }
   // Re-validate exactly the audited milestones. Fixes touch shared docs/dev/*.md, so any
@@ -136,7 +139,7 @@ for (let round = 1; round <= MAX_ROUNDS && emptyStreak < K; round++) {
   // (it is prose, not a list of IDs — splitting it spawns garbage lenses → runaway).
   const affected = milestones
   const re = await parallel(affected.flatMap((MID) => ['reference', 'dryrun', 'consistency', 'taskfit'].map((lens) => () =>
-    agent(lensPrompt(MID, lens), mo({ label: `re:${MID}:${lens}`, phase: 'Fix', schema: FINDINGS_SCHEMA }))
+    agent(lensPrompt(MID, lens), mo({ label: `re:${MID}:${lens}`, phase: 'Fix', schema: FINDINGS_SCHEMA }, 'opus'))
       .then((r) => (r.findings || []).map((x) => ({ ...x, MID }))).catch(() => []))))
   const reFindings = re.flat().filter((x) => ['major', 'blocker'].includes(x.severity)).slice(0, 12) // hard cap: runaway guard
   const reVerified = await parallel(reFindings.map((f, i) => () => verifyWithFallback({ ...f, id: `R${round}-${i}` })))
@@ -177,7 +180,7 @@ await parallel(milestones.map((MID) => () => {
     `리포트만 = ${JSON.stringify(mReport)}`,
     `예상개발이슈 = ${JSON.stringify(mDev)}`,
   ].join('\n')
-  return agent(prompt, mo({ label: `report:${MID}`, phase: 'Report' }))
+  return agent(prompt, mo({ label: `report:${MID}`, phase: 'Report' }, 'sonnet'))
     .then(() => { reports[MID] = `docs/dev/dryrun/${MID}.md` }).catch(() => {})
 }))
 

@@ -45,6 +45,21 @@ Each doc-generation phase (1-6) is dispatched to a subagent, never written inlin
 
 The orchestrator recovers only the written file path(s) from each subagent — never the document body itself. This follows the user's `preserving-main-context` doctrine: the main session holds decisions and paths, not raw generated content.
 
+## Model selection (per phase)
+
+Every phase subagent dispatch **must set `model` explicitly** — never omit it. Per the user's delegation-model policy (global CLAUDE.md §4), a delegated unit that omits `model` inherits the parent session model (which may be Fable), and Fable must not execute delegated work. Choose by how much design judgment the phase needs vs. how far a wrong decision propagates:
+
+| Phase | Model | Why |
+|---|---|---|
+| 1 Product definition (mvp-prd, competitive) | **opus** | Riskiest assumptions, scope, confirmed stack — the project's spine; errors propagate into every later doc |
+| 2 Architecture/domain (architecture, data-model, infra-security) | **opus** | Schema, RLS/tenancy, dependency rules — high-stakes design |
+| 5 Plan/dev-process (roadmap) | **opus** | Milestone decomposition, dependency graph, verification gates — design judgment |
+| 3 Engineering specs | **sonnet** | Expand already-decided features into specs from templates |
+| 4 Constitution (CLAUDE.md/AGENT.md/README) | **sonnet** | Assemble from the confirmed stack table + prior docs |
+| 6 Repo skeleton (.env, getting-started, dirs) | **sonnet** | Mechanical scaffolding from decided stack |
+
+Phase 0 intake runs in the main session (and delegates exploration to `superpowers:brainstorming`), so it uses the session model, not a pinned subagent. Phase 7 is a mechanical script run — no subagent needed; if delegated, `sonnet`. The user may override any of these by naming a model for that run.
+
 ## Conditional generation
 
 Consult `references/conditional-matrix.md` (using the Phase 0 trait flags) to decide which Phase 2/3/6 outputs are ON vs OFF for this project.
