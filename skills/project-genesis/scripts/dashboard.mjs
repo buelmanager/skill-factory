@@ -190,8 +190,8 @@ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14p
 footer{margin-top:44px;border-top:1px solid var(--line);padding-top:14px;font-family:monospace;font-size:11px;color:var(--dim)}`;
 
 // ---- CLI ----
-import { readFileSync as _read, readdirSync, writeFileSync } from 'node:fs';
-import { join as _join, basename } from 'node:path';
+import { readFileSync as _read, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join as _join, basename, dirname } from 'node:path';
 
 function main(argv) {
   const [progressPath, sessionsDir, outPath] = argv;
@@ -209,6 +209,7 @@ function main(argv) {
   } catch { /* no sessions dir yet */ }
   const project = basename(process.cwd());
   const html = renderDashboard({ project, generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '), progress, sessions });
+  mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
   console.log('dashboard written:', outPath);
 }
