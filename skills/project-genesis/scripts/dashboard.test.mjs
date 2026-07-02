@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseProgress, parseSession } from './dashboard.mjs';
+import { parseProgress, parseSession, escapeHtml, renderDashboard } from './dashboard.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sample = readFileSync(join(here, 'fixtures/PROGRESS.sample.md'), 'utf8');
@@ -49,4 +49,24 @@ test('parseSession: meta flag + empty arrays', () => {
   const s = parseSession(md, '2026-07-01-113703-close.md');
   assert.equal(s.meta, true);
   assert.deepEqual(s.tasksTouched, []);
+});
+
+test('escapeHtml: neutralizes HTML', () => {
+  assert.equal(escapeHtml(`<script>"x"&'y'`), '&lt;script&gt;&quot;x&quot;&amp;&#39;y&#39;');
+});
+
+test('renderDashboard: injects statuses and escapes text', () => {
+  const progress = parseProgress(readFileSync(join(here, 'fixtures/PROGRESS.sample.md'), 'utf8'));
+  const sessions = [{
+    session: '2026-07-01-100014', milestones: ['M-1'], tasksTouched: ['M-1.T1'],
+    statusAfter: { 'M-1.T1': 'blocked' }, nextAction: 'x <b>y</b>', meta: false,
+    title: 'boot <img>', filename: 'f.md',
+  }];
+  const html = renderDashboard({ project: 'Demo & Co', generatedAt: '2026-07-01', progress, sessions });
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /Demo &amp; Co/);              // project name escaped
+  assert.match(html, /boot &lt;img&gt;/);           // session title escaped
+  assert.ok(!/<img>/.test(html), 'raw <img> must not appear');
+  assert.match(html, /c-blocked|s-blocked/);        // status color class present
+  assert.match(html, /M-1/);                         // milestone rendered
 });
